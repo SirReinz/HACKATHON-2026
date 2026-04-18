@@ -5,7 +5,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 
 export function SignUpPage() {
   return (
-    <main className="grid min-h-svh place-items-center bg-gradient-to-br from-background via-muted/60 to-background p-6">
+    <main className="grid min-h-svh place-items-center bg-linear-to-br from-background via-muted/60 to-background p-6">
       <div className="absolute top-6 right-6 z-20">
         <ThemeToggle />
       </div>

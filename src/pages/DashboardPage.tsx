@@ -69,6 +69,7 @@ export function DashboardPage() {
               </CardDescription>
             </div>
             <div className="flex gap-3">
+              <ThemeToggle />
               <Button variant="outline" onClick={() => navigate("/explore")}>
                 Free Explore
               </Button>

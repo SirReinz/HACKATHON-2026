@@ -841,6 +841,7 @@ export function ResultsCarouselPage() {
           </div>
 
           <div className="flex justify-self-end gap-2">
+            <ThemeToggle />
             <Button
               variant="secondary"
               className="rounded-2xl"
