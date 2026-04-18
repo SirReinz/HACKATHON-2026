@@ -24,31 +24,36 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { type BBox, useSupabasePlaces } from "@/hooks/useSupabasePlaces"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 import { supabase } from "@/lib/supabase"
+import { buildSelection, CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
+import type { ClusterSelection } from "@/types/selection"
+import { MapPin } from "lucide-react"
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 
-const BOUNDARY_SOURCE_ID = "area-boundary"
+const BOUNDARY_SOURCE_ID   = "area-boundary"
 const BOUNDARY_LINE_LAYER_ID = "area-border"
 const BOUNDARY_FILL_LAYER_ID = "area-fill"
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "Arts and Entertainment": "#ff4df0",
+  "Arts and Entertainment":            "#ff4df0",
   "Business and Professional Service": "#9d4dff",
-  "Community and Government": "#4f8cff",
-  "Dining and Drinking": "#ff4da6",
-  Event: "#ff8a00",
-  "Health and Medicine": "#00f0a4",
-  "Landmarks and Outdoors": "#3bff6d",
-  Retail: "#ffd200",
-  "Sports and Recreation": "#00e5ff",
-  "Travel and Transportation": "#35b6ff",
+  "Community and Government":          "#4f8cff",
+  "Dining and Drinking":               "#ff4da6",
+  Event:                               "#ff8a00",
+  "Health and Medicine":               "#00f0a4",
+  "Landmarks and Outdoors":            "#3bff6d",
+  Retail:                              "#ffd200",
+  "Sports and Recreation":             "#00e5ff",
+  "Travel and Transportation":         "#35b6ff",
 }
 
-type ClusterSelection = {
-  type: "cluster" | "point" | "none"
-  label: string
-  count: number
-}
+// ---------------------------------------------------------------------------
+// Local types
+// ---------------------------------------------------------------------------
 
 type MapboxSuggestion = SearchResultItem
 
@@ -64,7 +69,23 @@ type MapViewportProps = {
   region: string
 }
 
+// ---------------------------------------------------------------------------
+// Module-level constants (NO hooks here)
+// ---------------------------------------------------------------------------
+
 const defaultCategories = ["Dining and Drinking", "Health and Medicine", "Retail"]
+
+const defaultSelection: ClusterSelection = {
+  type:  "none",
+  label: "No active selection",
+  count: 0,
+  icon:  MapPin,
+  color: "#6b7280",
+}
+
+// ---------------------------------------------------------------------------
+// Mapbox layer specs
+// ---------------------------------------------------------------------------
 
 const clusterRadiusExpression: ExpressionSpecification = [
   "step",
@@ -81,53 +102,43 @@ const clusterRadiusExpression: ExpressionSpecification = [
 const categoryColorExpression: ExpressionSpecification = [
   "match",
   ["get", "level1_category_name"],
-  "Arts and Entertainment",
-  CATEGORY_COLORS["Arts and Entertainment"],
-  "Business and Professional Service",
-  CATEGORY_COLORS["Business and Professional Service"],
-  "Community and Government",
-  CATEGORY_COLORS["Community and Government"],
-  "Dining and Drinking",
-  CATEGORY_COLORS["Dining and Drinking"],
-  "Event",
-  CATEGORY_COLORS.Event,
-  "Health and Medicine",
-  CATEGORY_COLORS["Health and Medicine"],
-  "Landmarks and Outdoors",
-  CATEGORY_COLORS["Landmarks and Outdoors"],
-  "Retail",
-  CATEGORY_COLORS.Retail,
-  "Sports and Recreation",
-  CATEGORY_COLORS["Sports and Recreation"],
-  "Travel and Transportation",
-  CATEGORY_COLORS["Travel and Transportation"],
+  "Arts and Entertainment",            CATEGORY_COLORS["Arts and Entertainment"],
+  "Business and Professional Service", CATEGORY_COLORS["Business and Professional Service"],
+  "Community and Government",          CATEGORY_COLORS["Community and Government"],
+  "Dining and Drinking",               CATEGORY_COLORS["Dining and Drinking"],
+  "Event",                             CATEGORY_COLORS.Event,
+  "Health and Medicine",               CATEGORY_COLORS["Health and Medicine"],
+  "Landmarks and Outdoors",            CATEGORY_COLORS["Landmarks and Outdoors"],
+  "Retail",                            CATEGORY_COLORS.Retail,
+  "Sports and Recreation",             CATEGORY_COLORS["Sports and Recreation"],
+  "Travel and Transportation",         CATEGORY_COLORS["Travel and Transportation"],
   "#9ca3af",
 ]
 
 const clusterLayer: LayerProps = {
-  id: "clusters",
-  type: "circle",
+  id:     "clusters",
+  type:   "circle",
   source: "places",
   filter: ["has", "point_count"],
   paint: {
-    "circle-color": "#00e5ff",
-    "circle-radius": clusterRadiusExpression,
-    "circle-opacity": 0.95,
+    "circle-color":        "#00e5ff",
+    "circle-radius":       clusterRadiusExpression,
+    "circle-opacity":      0.95,
     "circle-stroke-width": 3,
     "circle-stroke-color": "#f8fafc",
-    "circle-blur": 0.1,
+    "circle-blur":         0.1,
   },
 }
 
 const clusterCountLayer: LayerProps = {
-  id: "cluster-count",
-  type: "symbol",
+  id:     "cluster-count",
+  type:   "symbol",
   source: "places",
   filter: ["has", "point_count"],
   layout: {
     "text-field": ["get", "point_count_abbreviated"],
-    "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-    "text-size": 12,
+    "text-font":  ["Open Sans Bold", "Arial Unicode MS Bold"],
+    "text-size":  12,
   },
   paint: {
     "text-color": "#111827",
@@ -135,18 +146,22 @@ const clusterCountLayer: LayerProps = {
 }
 
 const unclusteredLayer: LayerProps = {
-  id: "unclustered-point",
-  type: "circle",
+  id:     "unclustered-point",
+  type:   "circle",
   source: "places",
   filter: ["!", ["has", "point_count"]],
   paint: {
-    "circle-color": categoryColorExpression,
-    "circle-radius": 8,
+    "circle-color":        categoryColorExpression,
+    "circle-radius":       8,
     "circle-stroke-width": 2.8,
     "circle-stroke-color": "#ffffff",
-    "circle-blur": 0.08,
+    "circle-blur":         0.08,
   },
 }
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
 
 function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>): BBox {
   let minLng = Number.POSITIVE_INFINITY
@@ -180,43 +195,38 @@ function safeSetPaint(
   map: MapboxMap,
   layerId: string,
   property: string,
-  value: string | number
+  value: string | number,
 ) {
   try {
-    ;(map as unknown as { setPaintProperty: (layer: string, prop: string, val: string | number) => void }).setPaintProperty(layerId, property, value)
+    ;(map as unknown as {
+      setPaintProperty: (layer: string, prop: string, val: string | number) => void
+    }).setPaintProperty(layerId, property, value)
   } catch {
     // Ignore missing/incompatible paint properties for style layers.
   }
 }
 
 function applyMapStyleTweaks(map: MapboxMap, isDark: boolean) {
-  const style = map.getStyle()
+  const style  = map.getStyle()
   const layers = style?.layers ?? []
 
   for (const layer of layers) {
     if (layer.type === "background") {
       safeSetPaint(map, layer.id, "background-color", isDark ? "#101317" : "#f1f3f5")
     }
-
     if (layer.type === "fill" && layer.id.includes("land")) {
       safeSetPaint(map, layer.id, "fill-color", isDark ? "#161b22" : "#eceff3")
     }
-
     if (layer.type === "fill" && layer.id.includes("water")) {
       safeSetPaint(map, layer.id, "fill-color", isDark ? "#0f2235" : "#d7e3f5")
     }
-
     if (layer.type === "line" && layer.id.includes("road")) {
-      safeSetPaint(map, layer.id, "line-color", isDark ? "#2d3440" : "#9aa3af")
-      safeSetPaint(map, layer.id, "line-opacity", isDark ? 0.9 : 0.8)
+      safeSetPaint(map, layer.id, "line-color",   isDark ? "#2d3440" : "#9aa3af")
+      safeSetPaint(map, layer.id, "line-opacity",  isDark ? 0.9 : 0.8)
     }
-
-    if (
-      layer.type === "line" &&
-      (layer.id.includes("admin") || layer.id.includes("boundary"))
-    ) {
-      safeSetPaint(map, layer.id, "line-color", isDark ? "#4b5563" : "#111827")
-      safeSetPaint(map, layer.id, "line-width", isDark ? 1.25 : 1.05)
+    if (layer.type === "line" && (layer.id.includes("admin") || layer.id.includes("boundary"))) {
+      safeSetPaint(map, layer.id, "line-color",   isDark ? "#4b5563" : "#111827")
+      safeSetPaint(map, layer.id, "line-width",   isDark ? 1.25 : 1.05)
       safeSetPaint(map, layer.id, "line-opacity", isDark ? 0.95 : 0.9)
     }
   }
@@ -229,62 +239,58 @@ async function fetchNominatimBoundary(query: string): Promise<{
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5`
 
   const response = await fetch(url)
-  const results = (await response.json()) as NominatimResult[]
+  const results  = (await response.json()) as NominatimResult[]
 
   const match = results.find(
-    (item) => item.geojson?.type === "Polygon" || item.geojson?.type === "MultiPolygon"
+    (item) => item.geojson?.type === "Polygon" || item.geojson?.type === "MultiPolygon",
   )
 
-  if (!match?.geojson?.type || !match.geojson.coordinates) {
-    return null
-  }
-
-  if (match.geojson.type !== "Polygon" && match.geojson.type !== "MultiPolygon") {
-    return null
-  }
+  if (!match?.geojson?.type || !match.geojson.coordinates) return null
+  if (match.geojson.type !== "Polygon" && match.geojson.type !== "MultiPolygon") return null
 
   const boundary: Feature<Polygon | MultiPolygon> = {
     type: "Feature",
     geometry: {
       type: match.geojson.type,
-      coordinates: match.geojson.coordinates as Polygon["coordinates"] | MultiPolygon["coordinates"],
+      coordinates: match.geojson.coordinates as
+        | Polygon["coordinates"]
+        | MultiPolygon["coordinates"],
     } as Polygon | MultiPolygon,
     properties: {},
   }
 
   const label = match.display_name.split(",")[0]?.trim() || query
-
   return { boundary, label }
 }
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export function MapViewport({ region }: MapViewportProps) {
-  const mapRef = React.useRef<MapRef | null>(null)
+  const mapRef    = React.useRef<MapRef | null>(null)
   const { theme } = useTheme()
 
+  // --- state ----------------------------------------------------------------
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>(defaultCategories)
-  const [queryBBox, setQueryBBox] = React.useState<BBox | null>(null)
-  const [highlightBoundary, setHighlightBoundary] = React.useState<
-    Feature<Polygon | MultiPolygon> | null
-  >(null)
-  const [pendingQueryBBox, setPendingQueryBBox] = React.useState<BBox | null>(null)
-  const [activeAreaLabel, setActiveAreaLabel] = React.useState<string | null>(null)
-  const [selection, setSelection] = React.useState<ClusterSelection>({
-    type: "none",
-    label: "No active selection",
-    count: 0,
-  })
-  const [briefing, setBriefing] = React.useState(
-    "Search and select an area to highlight its true boundary and extract business intelligence."
+  const [queryBBox,           setQueryBBox]          = React.useState<BBox | null>(null)
+  const [highlightBoundary,   setHighlightBoundary]  = React.useState<Feature<Polygon | MultiPolygon> | null>(null)
+  const [pendingQueryBBox,    setPendingQueryBBox]   = React.useState<BBox | null>(null)
+  const [activeAreaLabel,     setActiveAreaLabel]    = React.useState<string | null>(null)
+  const [selection,           setSelection]          = React.useState<ClusterSelection>(defaultSelection)
+  const [briefing,            setBriefing]           = React.useState(
+    "Search and select an area to highlight its true boundary and extract business intelligence.",
   )
   const [isBriefingLoading, setIsBriefingLoading] = React.useState(false)
+  const [searchQuery,       setSearchQuery]        = React.useState("")
+  const [searchResults,     setSearchResults]      = React.useState<MapboxSuggestion[]>([])
+  const [searchLoading,     setSearchLoading]      = React.useState(false)
+  const [searchOpen,        setSearchOpen]         = React.useState(false)
 
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [searchResults, setSearchResults] = React.useState<MapboxSuggestion[]>([])
-  const [searchLoading, setSearchLoading] = React.useState(false)
-  const [searchOpen, setSearchOpen] = React.useState(false)
-
+  // --- data -----------------------------------------------------------------
   const { data, loading, error, telemetry } = useSupabasePlaces(queryBBox, selectedCategories)
 
+  // --- derived --------------------------------------------------------------
   const isDark =
     theme === "dark" ||
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -293,32 +299,28 @@ export function MapViewport({ region }: MapViewportProps) {
     ? "mapbox://styles/mapbox/dark-v11"
     : "mapbox://styles/mapbox/light-v11"
 
+  // --- effects --------------------------------------------------------------
+
+  // Mapbox geocoder search
   React.useEffect(() => {
-    if (!mapboxToken) {
-      return
-    }
+    if (!mapboxToken) return
 
     const normalized = searchQuery.trim()
-    if (normalized.length < 2) {
-      return
-    }
+    if (normalized.length < 2) return
 
     const controller = new AbortController()
-    const timeout = window.setTimeout(async () => {
+    const timeout    = window.setTimeout(async () => {
       setSearchLoading(true)
       try {
         const response = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(normalized)}.json?access_token=${mapboxToken}&autocomplete=true&limit=8&types=place,postcode,locality`,
-          { signal: controller.signal }
+          { signal: controller.signal },
         )
         const payload = (await response.json()) as {
           features?: Array<{ id: string; place_name: string }>
         }
         setSearchResults(
-          (payload.features ?? []).map((feature) => ({
-            id: feature.id,
-            label: feature.place_name,
-          }))
+          (payload.features ?? []).map((f) => ({ id: f.id, label: f.place_name })),
         )
         setSearchOpen(true)
       } catch {
@@ -334,22 +336,15 @@ export function MapViewport({ region }: MapViewportProps) {
     }
   }, [searchQuery])
 
+  // Boundary + style tweaks
   React.useEffect(() => {
     const map = mapRef.current?.getMap()
-    if (!map) {
-      return
-    }
+    if (!map) return
 
     const clearBoundaryLayers = () => {
-      if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
-        map.removeLayer(BOUNDARY_LINE_LAYER_ID)
-      }
-      if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
-        map.removeLayer(BOUNDARY_FILL_LAYER_ID)
-      }
-      if (map.getSource(BOUNDARY_SOURCE_ID)) {
-        map.removeSource(BOUNDARY_SOURCE_ID)
-      }
+      if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) map.removeLayer(BOUNDARY_LINE_LAYER_ID)
+      if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) map.removeLayer(BOUNDARY_FILL_LAYER_ID)
+      if (map.getSource(BOUNDARY_SOURCE_ID))    map.removeSource(BOUNDARY_SOURCE_ID)
     }
 
     const drawBoundaryLayers = () => {
@@ -359,7 +354,7 @@ export function MapViewport({ region }: MapViewportProps) {
       }
 
       const sourcePayload: FeatureCollection<Polygon | MultiPolygon> = {
-        type: "FeatureCollection",
+        type:     "FeatureCollection",
         features: [highlightBoundary],
       }
 
@@ -367,49 +362,31 @@ export function MapViewport({ region }: MapViewportProps) {
       if (existing) {
         existing.setData(sourcePayload)
       } else {
-        map.addSource(BOUNDARY_SOURCE_ID, {
-          type: "geojson",
-          data: sourcePayload,
-        })
+        map.addSource(BOUNDARY_SOURCE_ID, { type: "geojson", data: sourcePayload })
       }
 
       if (!map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
         map.addLayer({
-          id: BOUNDARY_FILL_LAYER_ID,
-          type: "fill",
+          id:     BOUNDARY_FILL_LAYER_ID,
+          type:   "fill",
           source: BOUNDARY_SOURCE_ID,
-          paint: {
-            "fill-color": "#ffbf00",
-            "fill-opacity": 0.1,
-          },
+          paint:  { "fill-color": "#ffbf00", "fill-opacity": 0.1 },
         })
       }
 
       if (!map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
         map.addLayer({
-          id: BOUNDARY_LINE_LAYER_ID,
-          type: "line",
+          id:     BOUNDARY_LINE_LAYER_ID,
+          type:   "line",
           source: BOUNDARY_SOURCE_ID,
-          paint: {
-            "line-color": "#ffbf00",
-            "line-width": 3,
-            "line-blur": 1,
-            "line-opacity": 1,
-          },
+          paint:  { "line-color": "#ffbf00", "line-width": 3, "line-blur": 1, "line-opacity": 1 },
         })
       }
 
       const bbox = boundaryToBBox(highlightBoundary)
       map.fitBounds(
-        [
-          [bbox.minLng, bbox.minLat],
-          [bbox.maxLng, bbox.maxLat],
-        ],
-        {
-          padding: 54,
-          duration: 920,
-          maxZoom: 13.8,
-        }
+        [[bbox.minLng, bbox.minLat], [bbox.maxLng, bbox.maxLat]],
+        { padding: 54, duration: 920, maxZoom: 13.8 },
       )
 
       if (pendingQueryBBox) {
@@ -426,34 +403,23 @@ export function MapViewport({ region }: MapViewportProps) {
     }
 
     const handleStyleData = () => {
-      if (!map.isStyleLoaded()) {
-        return
-      }
-
+      if (!map.isStyleLoaded()) return
       applyMapStyleTweaks(map, isDark)
       drawBoundaryLayers()
     }
 
     map.on("styledata", handleStyleData)
-
-    return () => {
-      map.off("styledata", handleStyleData)
-    }
+    return () => { map.off("styledata", handleStyleData) }
   }, [highlightBoundary, isDark, pendingQueryBBox])
+
+  // --- callbacks ------------------------------------------------------------
 
   const generateBriefing = React.useCallback(
     async (pointCount: number) => {
       setIsBriefingLoading(true)
       const { data: response, error: invokeError } = await supabase.functions.invoke(
         "generate-briefing",
-        {
-          body: {
-            region,
-            pointCount,
-            categories: selectedCategories,
-            activeArea: activeAreaLabel,
-          },
-        }
+        { body: { region, pointCount, categories: selectedCategories, activeArea: activeAreaLabel } },
       )
 
       if (invokeError) {
@@ -465,26 +431,21 @@ export function MapViewport({ region }: MapViewportProps) {
       const result =
         typeof response === "string"
           ? response
-          : response?.briefing ??
-            response?.summary ??
-            response?.text ??
-            JSON.stringify(response, null, 2)
+          : response?.briefing ?? response?.summary ?? response?.text ?? JSON.stringify(response, null, 2)
 
       setBriefing(result)
       setIsBriefingLoading(false)
     },
-    [activeAreaLabel, region, selectedCategories]
+    [activeAreaLabel, region, selectedCategories],
   )
 
   const handleSearchResultSelect = React.useCallback(async (feature: MapboxSuggestion) => {
     setSearchLoading(true)
-
     try {
       const nominatimMatch = await fetchNominatimBoundary(feature.label)
 
       if (!nominatimMatch) {
         setBriefing("Unable to extract a true administrative boundary for this result. Try another area.")
-        setSearchLoading(false)
         return
       }
 
@@ -494,11 +455,8 @@ export function MapViewport({ region }: MapViewportProps) {
       setSearchOpen(false)
       setSearchResults([])
       setActiveAreaLabel(nominatimMatch.label)
-      setSelection({
-        type: "none",
-        label: "No active selection",
-        count: 0,
-      })
+      // ✅ Uses buildSelection — consistent with the updated ClusterSelection type
+      setSelection(buildSelection("none", "No active selection", 0))
       setBriefing(`Targeting Area: ${nominatimMatch.label}. Extracting local business intelligence...`)
       setHighlightBoundary(nominatimMatch.boundary)
       setPendingQueryBBox(bbox)
@@ -508,72 +466,54 @@ export function MapViewport({ region }: MapViewportProps) {
   }, [])
 
   const handleSearchAreaClick = React.useCallback(() => {
-    if (!highlightBoundary) {
-      return
-    }
-
+    if (!highlightBoundary) return
     setQueryBBox(boundaryToBBox(highlightBoundary))
   }, [highlightBoundary])
 
   const handleMapClick = React.useCallback(
     (event: MapMouseEvent) => {
-      if (!mapRef.current || !activeAreaLabel) {
-        return
-      }
+      if (!mapRef.current || !activeAreaLabel) return
 
-      const map = mapRef.current.getMap()
+      const map      = mapRef.current.getMap()
       const features = map.queryRenderedFeatures(event.point, {
         layers: ["clusters", "unclustered-point"],
       })
 
-      if (!features.length) {
-        return
-      }
+      if (!features.length) return
 
       const feature = features[0]
-      const source = map.getSource("places") as GeoJSONSource | undefined
+      const source  = map.getSource("places") as GeoJSONSource | undefined
       const layerId = feature.layer?.id
 
+      // Cluster click
       if (layerId === "clusters" && source) {
-        const clusterId = feature.properties?.cluster_id
+        const clusterId  = feature.properties?.cluster_id
         const pointCount = Number(feature.properties?.point_count ?? 0)
 
         source.getClusterExpansionZoom(clusterId, (zoomError, zoom) => {
-          if (zoomError || typeof zoom !== "number") {
-            return
-          }
-
-          if (feature.geometry.type !== "Point") {
-            return
-          }
-
+          if (zoomError || typeof zoom !== "number") return
+          if (feature.geometry.type !== "Point") return
           map.easeTo({
-            center: feature.geometry.coordinates as [number, number],
+            center:   feature.geometry.coordinates as [number, number],
             zoom,
             duration: 450,
           })
         })
 
-        setSelection({
-          type: "cluster",
-          label: `Cluster in ${activeAreaLabel}`,
-          count: pointCount,
-        })
-
+        // ✅ Replaced
+        setSelection(buildSelection("cluster", `Cluster in ${activeAreaLabel}`, pointCount))
         void generateBriefing(pointCount)
         return
       }
 
+      // Individual point click
       if (layerId === "unclustered-point") {
+        // ✅ Replaced
         const category = String(feature.properties?.level1_category_name ?? "Venue")
-        setSelection({
-          type: "point",
-          label: category,
-          count: 1,
-        })
+        setSelection(buildSelection("point", category, 1, category))
       }
     },
-    [activeAreaLabel, generateBriefing]
+    [activeAreaLabel, generateBriefing],
   )
 
   const clearSelection = React.useCallback(() => {
@@ -583,13 +523,12 @@ export function MapViewport({ region }: MapViewportProps) {
     setActiveAreaLabel(null)
     setSearchResults([])
     setSearchOpen(false)
-    setSelection({
-      type: "none",
-      label: "No active selection",
-      count: 0,
-    })
+    // ✅ Replaced
+    setSelection(buildSelection("none", "No active selection", 0))
     setBriefing("Search and select an area to highlight its true boundary and extract business intelligence.")
   }, [])
+
+  // --- derived render values ------------------------------------------------
 
   const sourceData = React.useMemo(() => data as FeatureCollection<Point>, [data])
 
@@ -599,6 +538,8 @@ export function MapViewport({ region }: MapViewportProps) {
   const aiStatus = activeAreaLabel
     ? `TARGETING: ${activeAreaLabel}`
     : "READY: SELECT TARGET AREA"
+
+  // --- render ---------------------------------------------------------------
 
   return (
     <main className="relative h-svh w-full overflow-hidden">
@@ -630,12 +571,15 @@ export function MapViewport({ region }: MapViewportProps) {
         <div className="h-full w-full bg-muted" />
       )}
 
+      {/* Gradient overlay */}
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
 
+      {/* Theme toggle */}
       <div className="absolute top-4 right-4 z-50 md:top-5 md:right-5">
         <ThemeToggle />
       </div>
 
+      {/* Search bar */}
       <div className="absolute top-4 left-1/2 z-50 w-[min(960px,calc(100%-0.75rem))] -translate-x-1/2 md:top-5 md:w-[min(920px,calc(100%-2rem))]">
         <SearchBar
           value={searchQuery}
@@ -650,12 +594,11 @@ export function MapViewport({ region }: MapViewportProps) {
           loading={searchLoading}
           open={searchOpen}
           onOpenChange={setSearchOpen}
-          onSelectResult={(item) => {
-            void handleSearchResultSelect(item)
-          }}
+          onSelectResult={(item) => { void handleSearchResultSelect(item) }}
         />
       </div>
 
+      {/* Filter panel — desktop */}
       <div className="absolute top-22 left-4 z-40 hidden w-[min(370px,calc(100%-2rem))] md:block lg:top-24 lg:left-6">
         <FilterPanel
           selectedCategories={selectedCategories}
@@ -670,6 +613,7 @@ export function MapViewport({ region }: MapViewportProps) {
         />
       </div>
 
+      {/* AI Overview card — desktop */}
       <Card className={`absolute top-22 right-4 z-40 hidden w-[min(430px,calc(100%-2rem))] md:block lg:top-24 lg:right-6 ${cardClassName}`}>
         <CardHeader>
           <CardTitle>AI Overview &amp; Description</CardTitle>
@@ -690,17 +634,28 @@ export function MapViewport({ region }: MapViewportProps) {
         </CardContent>
       </Card>
 
+      {/* Selection card — desktop */}
       <Card className={`absolute right-4 bottom-4 z-40 hidden w-[min(370px,calc(100%-2rem))] md:block lg:right-6 lg:bottom-6 ${cardClassName}`}>
         <CardHeader>
           <CardTitle>Current Selection</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+
+          {/* Icon + label header */}
+          <div className="flex items-center gap-2">
+            <selection.icon
+              size={18}
+              style={{ color: selection.color }}
+              strokeWidth={2}
+            />
+            <span className="font-medium" style={{ color: selection.color }}>
+              {selection.label}
+            </span>
+          </div>
+
           <p>
             <span className="text-muted-foreground">Active Area:</span>{" "}
             {activeAreaLabel ?? "No active search area"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Selection:</span> {selection.label}
           </p>
           <p>
             <span className="text-muted-foreground">Selected Count:</span> {selection.count}
@@ -708,13 +663,24 @@ export function MapViewport({ region }: MapViewportProps) {
           <p>
             <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
           </p>
-          <div className="space-y-1">
-            {Object.entries(telemetry.byCategory).map(([name, count]) => (
-              <p key={name}>
-                <span className="text-muted-foreground">{name}:</span> {count}
-              </p>
-            ))}
+
+          {/* Category breakdown with icons */}
+          <div className="space-y-1 pt-1">
+            {Object.entries(telemetry.byCategory).map(([name, count]) => {
+              const meta = CATEGORY_ICON_MAP[name]
+              const Icon = meta?.icon
+              return (
+                <div key={name} className="flex items-center gap-2">
+                  {Icon && (
+                    <Icon size={13} style={{ color: meta.color }} strokeWidth={2} />
+                  )}
+                  <span className="text-muted-foreground">{name}:</span>
+                  <span>{count}</span>
+                </div>
+              )
+            })}
           </div>
+
           <div className="mt-3 flex gap-2">
             <Button variant="outline" className="flex-1 rounded-2xl" onClick={clearSelection}>
               Clear Selection
@@ -726,10 +692,12 @@ export function MapViewport({ region }: MapViewportProps) {
         </CardContent>
       </Card>
 
+      {/* User profile */}
       <div className="absolute bottom-4 left-4 z-40 lg:bottom-6 lg:left-6">
         <UserProfileBox />
       </div>
 
+      {/* Mobile panels */}
       <div className="absolute right-3 bottom-3 left-3 z-40 space-y-2 md:hidden">
         <Card className={cardClassName}>
           <CardContent className="p-3">
@@ -777,6 +745,19 @@ export function MapViewport({ region }: MapViewportProps) {
             <details>
               <summary className="cursor-pointer py-1 text-sm font-medium">Current Selection</summary>
               <div className="space-y-2 pt-3">
+
+                {/* Icon + label — mobile */}
+                <div className="flex items-center gap-2">
+                  <selection.icon
+                    size={16}
+                    style={{ color: selection.color }}
+                    strokeWidth={2}
+                  />
+                  <span className="font-medium" style={{ color: selection.color }}>
+                    {selection.label}
+                  </span>
+                </div>
+
                 <p>
                   <span className="text-muted-foreground">Active Area:</span>{" "}
                   {activeAreaLabel ?? "No active search area"}
