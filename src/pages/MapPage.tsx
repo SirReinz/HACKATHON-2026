@@ -12,5 +12,12 @@ export function MapPage() {
       ? String(location.state.region)
       : "australia"
 
-  return <MapViewport region={region} />
+  const initialArea =
+    typeof location.state === "object" &&
+    location.state !== null &&
+    "initialArea" in location.state
+      ? String(location.state.initialArea)
+      : undefined
+
+  return <MapViewport region={region} initialArea={initialArea} />
 }

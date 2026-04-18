@@ -51,6 +51,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Travel and Transportation":         "#0db488",
 }
 
+const NSW_BBOX: [number, number, number, number] = [140.999, -37.505, 153.639, -28.157]
+
 // ---------------------------------------------------------------------------
 // Local types
 // ---------------------------------------------------------------------------
@@ -59,6 +61,11 @@ type MapboxSuggestion = SearchResultItem
 
 type NominatimResult = {
   display_name: string
+  address?: {
+    state?: string
+    state_code?: string
+    country_code?: string
+  }
   geojson?: {
     type?: string
     coordinates?: unknown
@@ -67,6 +74,14 @@ type NominatimResult = {
 
 type MapViewportProps = {
   region: string
+  initialArea?: string
+}
+
+type AreaInsights = {
+  population: number | null
+  wealthDecile: number | null
+  venuePerThousand: number | null
+  axelScore: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +96,23 @@ const defaultSelection: ClusterSelection = {
   count: 0,
   icon:  MapPin,
   color: "#6b7280",
+}
+
+function isNewSouthWalesResult(label: string, address?: NominatimResult["address"]): boolean {
+  const normalizedLabel = label.toLowerCase()
+  const state = address?.state?.toLowerCase() ?? ""
+  const stateCode = address?.state_code?.toLowerCase() ?? ""
+  const countryCode = address?.country_code?.toLowerCase() ?? ""
+
+  if (state.includes("new south wales") || stateCode === "nsw") {
+    return true
+  }
+
+  if (countryCode === "au" && address) {
+    return normalizedLabel.includes(", nsw") || normalizedLabel.includes(", new south wales")
+  }
+
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -266,13 +298,16 @@ async function fetchNominatimBoundary(query: string): Promise<{
   boundary: Feature<Polygon | MultiPolygon>
   label: string
 } | null> {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5&email=your_email@example.com`
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5&countrycodes=au&viewbox=${NSW_BBOX[0]},${NSW_BBOX[3]},${NSW_BBOX[2]},${NSW_BBOX[1]}&bounded=1&email=your_email@example.com`
 
   const response = await fetch(url)
   const results  = (await response.json()) as NominatimResult[]
 
   const match = results.find(
-    (item) => item.geojson?.type === "Polygon" || item.geojson?.type === "MultiPolygon",
+    (item) => (
+      (item.geojson?.type === "Polygon" || item.geojson?.type === "MultiPolygon") &&
+      isNewSouthWalesResult(item.display_name, item.address)
+    ),
   )
 
   if (!match?.geojson?.type || !match.geojson.coordinates) return null
@@ -297,9 +332,11 @@ async function fetchNominatimBoundary(query: string): Promise<{
 // Component
 // ---------------------------------------------------------------------------
 
-export function MapViewport({ region }: MapViewportProps) {
+export function MapViewport({ region, initialArea }: MapViewportProps) {
   const navigate = useNavigate()
   const mapRef = React.useRef<MapRef | null>(null)
+  const lastBriefedAreaRef = React.useRef<string | null>(null)
+  const initialAreaAppliedRef = React.useRef<string | null>(null)
   const { theme } = useTheme()
 
   // --- state ----------------------------------------------------------------
@@ -317,6 +354,7 @@ export function MapViewport({ region }: MapViewportProps) {
   const [searchResults,     setSearchResults]      = React.useState<MapboxSuggestion[]>([])
   const [searchLoading,     setSearchLoading]      = React.useState(false)
   const [searchOpen,        setSearchOpen]         = React.useState(false)
+  const [areaInsights, setAreaInsights] = React.useState<AreaInsights | null>(null)
 
   // --- data -----------------------------------------------------------------
   const { data, loading, error, telemetry } = useSupabasePlaces(
@@ -348,7 +386,7 @@ export function MapViewport({ region }: MapViewportProps) {
       setSearchLoading(true)
       try {
         const response = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(normalized)}.json?access_token=${mapboxToken}&autocomplete=true&limit=8&types=place,postcode,locality`,
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(normalized)}.json?access_token=${mapboxToken}&autocomplete=true&limit=8&types=place,postcode,locality&country=au&bbox=${NSW_BBOX.join(",")}`,
           { signal: controller.signal },
         )
         const payload = (await response.json()) as {
@@ -370,6 +408,85 @@ export function MapViewport({ region }: MapViewportProps) {
       window.clearTimeout(timeout)
     }
   }, [searchQuery])
+
+  React.useEffect(() => {
+    if (!activeAreaLabel) {
+      setAreaInsights(null)
+      return
+    }
+
+    let cancelled = false
+
+    const toNumber = (value: unknown) => {
+      const parsed = typeof value === "number" ? value : Number(value)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+
+    const normalizeName = (value: string) =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+
+    const loadAreaInsights = async () => {
+      const suburbQuery = activeAreaLabel.trim()
+      const escaped = suburbQuery.replace(/,/g, "").replace(/\s+/g, " ")
+
+      const { data, error } = await supabase
+        .from("axel_master")
+        .select("display_name, sa2_name, population_2025, seifa_decile, pois_per_1000_people, seifa_score")
+        .or(
+          `display_name.ilike.${escaped}%,sa2_name.ilike.${escaped}%,display_name.ilike.%${escaped}%,sa2_name.ilike.%${escaped}%`,
+        )
+        .limit(10)
+
+      if (cancelled) return
+
+      const rows: Array<Record<string, unknown>> = Array.isArray(data)
+        ? (data as Array<Record<string, unknown>>)
+        : []
+
+      if (error || !rows.length) {
+        setAreaInsights(null)
+        return
+      }
+
+      const targetLabel = normalizeName(activeAreaLabel)
+      const matched =
+        rows.find((item: Record<string, unknown>) => {
+          const displayName = String(item.display_name ?? "")
+          const sa2Name = String(item.sa2_name ?? "")
+          return normalizeName(displayName) === targetLabel || normalizeName(sa2Name) === targetLabel
+        }) ?? rows[0]
+
+      if (!matched) {
+        setAreaInsights(null)
+        return
+      }
+
+      const population = toNumber(matched.population_2025)
+      const wealthDecile = toNumber(matched.seifa_decile)
+      const venuePerThousand = toNumber(matched.pois_per_1000_people)
+
+      const rawScore = toNumber(matched.seifa_score)
+      const axelScore =
+        rawScore === null ? null : rawScore <= 1 ? Number((rawScore * 100).toFixed(0)) : Number(rawScore.toFixed(0))
+
+      setAreaInsights({
+        population,
+        wealthDecile,
+        venuePerThousand,
+        axelScore,
+      })
+    }
+
+    void loadAreaInsights()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeAreaLabel])
 
   // Boundary + style tweaks
   React.useEffect(() => {
@@ -489,6 +606,20 @@ export function MapViewport({ region }: MapViewportProps) {
     [activeAreaLabel, region, selectedCategories],
   )
 
+  // Auto-run AI overview when a new area is selected from search.
+  React.useEffect(() => {
+    if (!activeAreaLabel) {
+      lastBriefedAreaRef.current = null
+      return
+    }
+
+    if (loading) return
+    if (lastBriefedAreaRef.current === activeAreaLabel) return
+
+    lastBriefedAreaRef.current = activeAreaLabel
+    void generateBriefing(telemetry.total)
+  }, [activeAreaLabel, loading, telemetry.total, generateBriefing])
+
   const handleSearchResultSelect = React.useCallback(async (feature: MapboxSuggestion) => {
     setQueryGeometry(null)
     setSearchLoading(true)
@@ -504,6 +635,7 @@ export function MapViewport({ region }: MapViewportProps) {
       setSearchOpen(false)
       setSearchResults([])
       setActiveAreaLabel(nominatimMatch.label)
+      setIsBriefingLoading(true)
       // ✅ Uses buildSelection — consistent with the updated ClusterSelection type
       setSelection(buildSelection("none", "No active selection", 0))
       setBriefing(`Targeting Area: ${nominatimMatch.label}. Extracting local business intelligence...`)
@@ -514,6 +646,15 @@ export function MapViewport({ region }: MapViewportProps) {
       setSearchLoading(false)
     }
   }, [])
+
+  React.useEffect(() => {
+    const label = initialArea?.trim()
+    if (!label) return
+    if (initialAreaAppliedRef.current === label) return
+
+    initialAreaAppliedRef.current = label
+    void handleSearchResultSelect({ id: `initial-${label}`, label })
+  }, [initialArea, handleSearchResultSelect])
 
   const handleSearchAreaClick = React.useCallback(() => {
     if (!highlightBoundary) {
@@ -667,84 +808,123 @@ export function MapViewport({ region }: MapViewportProps) {
         />
       </div>
 
-      {/* AI Overview card — desktop */}
-      <Card className={`absolute top-22 right-4 z-40 hidden w-[min(430px,calc(100%-2rem))] md:block lg:top-24 lg:right-6 ${cardClassName}`}>
-        <CardHeader>
-          <CardTitle>AI Overview &amp; Description</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
-          {isBriefingLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-11/12" />
-              <Skeleton className="h-4 w-4/5" />
-            </div>
-          ) : (
-            <ScrollArea className="h-44 pr-3">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{briefing}</p>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
+      {/* Right-side desktop stack: AI Overview + Current Selection */}
+      <div className="absolute top-22 right-4 bottom-4 z-40 hidden w-[min(430px,calc(100%-2rem))] min-h-0 flex-col gap-4 md:flex lg:top-24 lg:right-6 lg:bottom-6">
+        <Card className={cardClassName}>
+          <CardHeader>
+            <CardTitle>AI Overview &amp; Description</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
+            {isBriefingLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            ) : (
+              <ScrollArea className="h-44 pr-3">
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{briefing}</p>
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Selection card — desktop */}
-      <Card className={`absolute right-4 bottom-4 z-40 hidden w-[min(370px,calc(100%-2rem))] md:block lg:right-6 lg:bottom-6 ${cardClassName}`}>
-        <CardHeader>
-          <CardTitle>Current Selection</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <Card className={`min-h-0 flex-1 ${cardClassName}`}>
+          <CardHeader>
+            <CardTitle>Current Selection</CardTitle>
+          </CardHeader>
+          <CardContent className="min-h-0 flex flex-1 flex-col gap-3 text-sm">
+            <ScrollArea className="min-h-0 flex-1 pr-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex h-full flex-col space-y-2 border-r border-border/60 pr-3">
+              {/* Icon + label header */}
+              <div className="flex items-center gap-2">
+                <selection.icon
+                  size={18}
+                  style={{ color: selection.color }}
+                  strokeWidth={2}
+                />
+                <span className="font-medium" style={{ color: selection.color }}>
+                  {selection.label}
+                </span>
+              </div>
 
-          {/* Icon + label header */}
-          <div className="flex items-center gap-2">
-            <selection.icon
-              size={18}
-              style={{ color: selection.color }}
-              strokeWidth={2}
-            />
-            <span className="font-medium" style={{ color: selection.color }}>
-              {selection.label}
-            </span>
-          </div>
+              <p>
+                <span className="text-muted-foreground">Active Area:</span>{" "}
+                {activeAreaLabel ?? "No active search area"}
+              </p>
+              <p>
+                    <span className="text-muted-foreground">Selected Count:</span> {selection.count}
+                </p>
+              <p>
+                <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
+              </p>
 
-          <p>
-            <span className="text-muted-foreground">Active Area:</span>{" "}
-            {activeAreaLabel ?? "No active search area"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Selected Count:</span> {selection.count}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
-          </p>
+              {/* Category breakdown with icons */}
+              <div className="space-y-1 pt-1">
+                {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => {
+                  const meta = CATEGORY_ICON_MAP[name]
+                  const Icon = meta?.icon
+                  return (
+                    <div key={name} className="grid grid-cols-[1fr_auto] items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {Icon && (
+                          <Icon size={13} style={{ color: meta.color }} strokeWidth={2} />
+                        )}
+                        <span className="min-w-0 whitespace-normal wrap-break-word leading-snug text-muted-foreground">{name}:</span>
+                      </div>
+                      <span className="justify-self-end tabular-nums">{count}</span>
+                    </div>
+                  )
+                })}
+              </div>
 
-          {/* Category breakdown with icons */}
-          <div className="space-y-1 pt-1">
-            {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => {
-              const meta = CATEGORY_ICON_MAP[name]
-              const Icon = meta?.icon
-              return (
-                <div key={name} className="flex items-center gap-2">
-                  {Icon && (
-                    <Icon size={13} style={{ color: meta.color }} strokeWidth={2} />
-                  )}
-                  <span className="text-muted-foreground">{name}:</span>
-                  <span>{count}</span>
+              </div>
+
+              <div className="flex h-full flex-col pl-1">
+                <div className="space-y-2">
+                  <p>
+                    <span className="text-muted-foreground">Population:</span>{" "}
+                    {areaInsights?.population !== null && areaInsights?.population !== undefined
+                      ? areaInsights.population.toLocaleString()
+                      : "N/A"}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Wealth Decile:</span>{" "}
+                    {areaInsights?.wealthDecile !== null && areaInsights?.wealthDecile !== undefined
+                      ? `${areaInsights.wealthDecile} / 10`
+                      : "N/A"}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Venue / 1k residents:</span>{" "}
+                    {areaInsights?.venuePerThousand !== null && areaInsights?.venuePerThousand !== undefined
+                      ? areaInsights.venuePerThousand
+                      : "N/A"}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Axel Score:</span>{" "}
+                    {areaInsights?.axelScore !== null && areaInsights?.axelScore !== undefined
+                      ? `${areaInsights.axelScore} / 100`
+                      : "N/A"}
+                  </p>
                 </div>
-              )
-            })}
-          </div>
 
-          <div className="mt-3 flex gap-2">
-            <Button variant="outline" className="flex-1 rounded-2xl" onClick={clearSelection}>
-              Clear Selection
-            </Button>
-            <Button asChild className="flex-1 rounded-2xl">
-              <Link to="/details">Deep Dive</Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              </div>
+            </div>
+            </ScrollArea>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>
+                Clear Selection
+              </Button>
+              <Button asChild className="w-full rounded-2xl">
+                <Link to="/details">Deep Dive</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* User profile */}
       <div className="absolute bottom-4 left-4 z-40 lg:bottom-6 lg:left-6">
@@ -824,6 +1004,30 @@ export function MapViewport({ region }: MapViewportProps) {
                 </p>
                 <p>
                   <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Population:</span>{" "}
+                  {areaInsights?.population !== null && areaInsights?.population !== undefined
+                    ? areaInsights.population.toLocaleString()
+                    : "N/A"}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Wealth Decile:</span>{" "}
+                  {areaInsights?.wealthDecile !== null && areaInsights?.wealthDecile !== undefined
+                    ? `${areaInsights.wealthDecile} / 10`
+                    : "N/A"}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Venue / 1k residents:</span>{" "}
+                  {areaInsights?.venuePerThousand !== null && areaInsights?.venuePerThousand !== undefined
+                    ? areaInsights.venuePerThousand
+                    : "N/A"}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Axel Score:</span>{" "}
+                  {areaInsights?.axelScore !== null && areaInsights?.axelScore !== undefined
+                    ? `${areaInsights.axelScore} / 100`
+                    : "N/A"}
                 </p>
                 <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>
                   Clear Selection

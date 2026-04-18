@@ -1,11 +1,11 @@
 import * as React from "react"
 import { useUser } from "@clerk/clerk-react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, MapPin } from "lucide-react"
 import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson"
 import type { GeoJSONSource, Map as MapboxMap } from "mapbox-gl"
 import type { LayerProps, MapRef } from "react-map-gl/mapbox"
 import Map, { NavigationControl, Source, Layer } from "react-map-gl/mapbox"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { useTheme } from "@/components/theme-provider"
@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useInquiryFlow } from "@/context/InquiryFlowContext"
 import { fetchPlacesInPolygonPaginated, type PlaceRow } from "@/lib/fetchPlacesPaginated"
+import { CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
 import { supabase } from "@/lib/supabase"
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
@@ -65,8 +66,37 @@ type SummaryFeatureProperties = {
   level1_category?: string
 }
 
+type SavedScoringRow = {
+  name?: string
+  finalScore?: number
+  competitorsPerThousand?: number
+  seifaDecile?: number
+  population?: number
+  competitorCount?: number
+}
+
+type InquiryResultsData = {
+  suburbs?: string[]
+  active_suburb?: string
+  venue_counts_by_suburb?: Record<string, number>
+  scoring?: SavedScoringRow[]
+}
+
 function suburbLabel(suburb: ResultSuburb): string {
   return suburb.displayName ?? suburb.name
+}
+
+function normalizeName(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function fallbackCenterForSuburb(name: string, index: number): [number, number] {
+  const match = FALLBACK_RESULTS.find((item) => normalizeName(item.name) === normalizeName(name))
+  if (match) {
+    return match.fallbackCenter
+  }
+
+  return [151.2093 + index * 0.01, -33.8688 - index * 0.01]
 }
 
 // ── REMOVED: hardcoded demoResults ────────────────────────────────────────
@@ -297,10 +327,12 @@ function apply3DBuildings(map: MapboxMap, isDark: boolean) {
 
 export function ResultsCarouselPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const mapRef = React.useRef<MapRef | null>(null)
   const { theme } = useTheme()
   const { draft, setDraft } = useInquiryFlow()
   const { user } = useUser()
+  const inquiryId = searchParams.get("inquiryId")
 
   const [activeIndex, setActiveIndex] = React.useState(0)
   const [mapLoaded, setMapLoaded] = React.useState(false)
@@ -314,6 +346,8 @@ export function ResultsCarouselPage() {
   const [saveLoading, setSaveLoading] = React.useState(false)
   const [countsBySuburb, setCountsBySuburb] = React.useState<Record<string, number>>({})
   const [fetchMessage, setFetchMessage] = React.useState<string | null>(null)
+  const [hasSavedInquiry, setHasSavedInquiry] = React.useState(Boolean(inquiryId))
+  const [restoringInquiry, setRestoringInquiry] = React.useState(false)
 
   // ── NEW: scoring state ──────────────────────────────────────────────────
   const [scoredResults, setScoredResults] = React.useState<ResultSuburb[]>(FALLBACK_RESULTS)
@@ -324,6 +358,7 @@ export function ResultsCarouselPage() {
   const rotationRequestRef = React.useRef<number | null>(null)
   const rotationMoveEndHandlerRef = React.useRef<(() => void) | null>(null)
   const exitToDashboardRef = React.useRef(false)
+  const restoredInquiryRef = React.useRef(false)
 
   const activeSuburb = scoredResults[activeIndex]
 
@@ -344,10 +379,94 @@ export function ResultsCarouselPage() {
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
 
   const mapStyle = isDark ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/light-v11"
+  const cardClassName = "border-border/50 bg-background/60 shadow-2xl shadow-primary/10 backdrop-blur-md"
+
+  React.useEffect(() => {
+    if (!inquiryId || !user || restoredInquiryRef.current) {
+      return
+    }
+
+    setRestoringInquiry(true)
+    setScoringLoading(true)
+    setFetchMessage("Loading saved inquiry...")
+
+    const restoreInquiry = async () => {
+      const { data, error } = await supabase
+        .from("inquiries")
+        .select("business_type, target_audience, spending_bracket, results_data")
+        .eq("id", inquiryId)
+        .eq("user_id", user.id)
+        .maybeSingle()
+
+      if (error || !data) {
+        toast.error("Could not open saved inquiry.")
+        navigate("/dashboard", { replace: true })
+        setRestoringInquiry(false)
+        setScoringLoading(false)
+        setFetchMessage(null)
+        return
+      }
+
+      setDraft({
+        businessType: data.business_type,
+        targetAudience: data.target_audience,
+        spendingBracket: data.spending_bracket,
+      })
+
+      const resultsData = (data.results_data ?? {}) as InquiryResultsData
+      const scoringRows = Array.isArray(resultsData.scoring) ? resultsData.scoring : []
+
+      const savedNames = Array.isArray(resultsData.suburbs)
+        ? resultsData.suburbs
+        : scoringRows
+            .map((row) => (typeof row.name === "string" ? row.name : ""))
+            .filter(Boolean)
+
+      const restoredSuburbs = (savedNames.length ? savedNames : FALLBACK_RESULTS.map((item) => item.name)).map(
+        (name, index) => {
+          const scoringMatch = scoringRows.find(
+            (row) => typeof row.name === "string" && normalizeName(row.name) === normalizeName(name)
+          )
+
+          return {
+            name,
+            displayName: name,
+            fallbackCenter: fallbackCenterForSuburb(name, index),
+            finalScore: scoringMatch?.finalScore,
+            competitorsPerThousand: scoringMatch?.competitorsPerThousand,
+            seifaDecile: scoringMatch?.seifaDecile,
+            population: scoringMatch?.population,
+            competitorCount: scoringMatch?.competitorCount,
+          } as ResultSuburb
+        }
+      )
+
+      setScoredResults(restoredSuburbs.length ? restoredSuburbs : FALLBACK_RESULTS)
+
+      const activeName = typeof resultsData.active_suburb === "string" ? resultsData.active_suburb : null
+      const restoredActiveIndex = activeName
+        ? restoredSuburbs.findIndex((item) => normalizeName(suburbLabel(item)) === normalizeName(activeName))
+        : -1
+
+      setActiveIndex(restoredActiveIndex >= 0 ? restoredActiveIndex : 0)
+
+      if (resultsData.venue_counts_by_suburb && typeof resultsData.venue_counts_by_suburb === "object") {
+        setCountsBySuburb(resultsData.venue_counts_by_suburb)
+      }
+
+      setHasSavedInquiry(true)
+      restoredInquiryRef.current = true
+      setRestoringInquiry(false)
+      setScoringLoading(false)
+      setFetchMessage(null)
+    }
+
+    void restoreInquiry()
+  }, [inquiryId, navigate, setDraft, user])
 
   // ── NEW: fetch scored results from edge function ────────────────────────
   React.useEffect(() => {
-    if (!draft) return
+    if (!draft || restoredInquiryRef.current) return
 
     setScoringLoading(true)
     setFetchMessage("Finding best suburbs for your business...")
@@ -376,11 +495,12 @@ export function ResultsCarouselPage() {
   React.useEffect(() => {
     if (!draft) {
       if (exitToDashboardRef.current) return
+      if (inquiryId || restoringInquiry) return
       navigate("/inquiry/new", { replace: true })
       return
     }
     exitToDashboardRef.current = false
-  }, [draft, navigate])
+  }, [draft, inquiryId, navigate, restoringInquiry])
 
   React.useEffect(() => {
     const currentCount = telemetry.total
@@ -700,6 +820,30 @@ export function ResultsCarouselPage() {
     navigate("/dashboard", { replace: true })
   }
 
+  const handleReturnToDashboard = () => {
+    setDraft(null)
+    navigate("/dashboard", { replace: true })
+  }
+
+  const handleFreeView = () => {
+    if (!hasSavedInquiry) {
+      const confirmed = window.confirm(
+        "You are about to exit the inquiry screen, all progress will be lost",
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
+    exitToDashboardRef.current = true
+    setDraft(null)
+    navigate("/explore", { state: { region: "australia", initialArea: suburbLabel(activeSuburb) } })
+  }
+
+  const handleDeepDive = () => {
+    navigate("/details")
+  }
+
   const handleSaveInquiry = async () => {
     if (!draft || !user) return
 
@@ -733,10 +877,8 @@ export function ResultsCarouselPage() {
     }
 
     toast.success("Inquiry saved successfully.")
-    exitToDashboardRef.current = true
-    setDraft(null)
+    setHasSavedInquiry(true)
     setSaveLoading(false)
-    navigate("/dashboard", { replace: true })
   }
 
   return (
@@ -814,12 +956,20 @@ export function ResultsCarouselPage() {
 
           <div className="flex justify-self-end gap-2">
             <ThemeToggle />
-            <Button variant="secondary" className="rounded-2xl" onClick={handleExitWithoutSaving} disabled={saveLoading}>
-              Exit Without Saving
-            </Button>
-            <Button className="rounded-2xl" onClick={handleSaveInquiry} disabled={saveLoading || !draft}>
-              {saveLoading ? "Saving..." : "Save Inquiry"}
-            </Button>
+            {hasSavedInquiry ? (
+              <Button className="rounded-2xl" onClick={handleReturnToDashboard}>
+                Return
+              </Button>
+            ) : (
+              <>
+                <Button variant="secondary" className="rounded-2xl" onClick={handleExitWithoutSaving} disabled={saveLoading}>
+                  Exit Without Saving
+                </Button>
+                <Button className="rounded-2xl" onClick={handleSaveInquiry} disabled={saveLoading || !draft}>
+                  {saveLoading ? "Saving..." : "Save Inquiry"}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -837,51 +987,115 @@ export function ResultsCarouselPage() {
         </div>
       </div>
 
-      {/* Intelligence briefing panel */}
-      <Card className="absolute top-24 right-4 bottom-4 z-50 w-[min(430px,calc(100%-2rem))] border-border/50 bg-background/65 shadow-2xl backdrop-blur-xl md:right-6">
-        <CardHeader>
-          <CardTitle>Intelligence Briefing</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Suburb stats card */}
-          <div className="space-y-1 rounded-2xl border border-border/60 bg-background/35 p-3 text-sm">
-            <p><span className="text-muted-foreground">Suburb:</span> {suburbLabel(activeSuburb)}</p>
-            <p><span className="text-muted-foreground">Raw Venue Count:</span> {telemetry.total}</p>
-
-            {/* ── NEW: scoring stats ── */}
-            {activeSuburb.population && (
-              <p><span className="text-muted-foreground">Population:</span> {activeSuburb.population.toLocaleString()}</p>
-            )}
-            {activeSuburb.seifaDecile && (
-              <p><span className="text-muted-foreground">Wealth Decile:</span> {activeSuburb.seifaDecile} / 10</p>
-            )}
-            {activeSuburb.competitorsPerThousand !== undefined && (
-              <p><span className="text-muted-foreground">Competitors / 1k residents:</span> {activeSuburb.competitorsPerThousand}</p>
-            )}
-            {activeSuburb.finalScore !== undefined && (
-              <p><span className="text-muted-foreground">Axel Score:</span> {(activeSuburb.finalScore * 100).toFixed(0)} / 100</p>
-            )}
-
-            {fetchMessage ? <p className="text-muted-foreground">{fetchMessage}</p> : null}
-          </div>
-
-          {/* AI summary */}
-          <div className="rounded-2xl border border-border/60 bg-background/35 p-3">
-            <p className="mb-2 text-xs tracking-wide text-primary uppercase">AI Summary</p>
+      {/* Right-side desktop stack: AI Overview + Current Selection */}
+      <div className="absolute top-24 right-4 bottom-4 z-50 hidden w-[min(430px,calc(100%-2rem))] min-h-0 flex-col gap-4 md:flex md:right-6">
+        <Card className={cardClassName}>
+          <CardHeader>
+            <CardTitle>AI Overview &amp; Description</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs font-medium tracking-wide text-primary uppercase">
+              {hasSavedInquiry ? "READY: SAVED INQUIRY" : `TARGETING: ${suburbLabel(activeSuburb)}`}
+            </p>
             {briefingLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-11/12" />
-                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-4/5" />
               </div>
             ) : (
-              <ScrollArea className="h-[50svh] pr-2">
+              <ScrollArea className="h-44 pr-3">
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
               </ScrollArea>
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+        <Card className={`min-h-0 flex-1 ${cardClassName}`}>
+          <CardHeader>
+            <CardTitle>Current Selection</CardTitle>
+          </CardHeader>
+          <CardContent className="min-h-0 flex flex-1 flex-col gap-3 text-sm">
+            <ScrollArea className="min-h-0 flex-1 pr-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex h-full flex-col space-y-2 border-r border-border/60 pr-3">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={18} className="text-primary" strokeWidth={2} />
+                    <span className="font-medium text-primary">{suburbLabel(activeSuburb)}</span>
+                  </div>
+
+                  <p>
+                    <span className="text-muted-foreground">Active Area:</span> {suburbLabel(activeSuburb)}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Selected Count:</span> {scoredResults.length}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
+                  </p>
+
+                  <div className="space-y-1 pt-1">
+                    {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => {
+                      const meta = CATEGORY_ICON_MAP[name]
+                      const Icon = meta?.icon
+
+                      return (
+                        <div key={name} className="grid grid-cols-[1fr_auto] items-center gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
+                            {Icon ? <Icon size={13} style={{ color: meta.color }} strokeWidth={2} /> : null}
+                            <span className="min-w-0 whitespace-normal wrap-break-word leading-snug text-muted-foreground">{name}:</span>
+                          </div>
+                          <span className="justify-self-end tabular-nums">{count}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex h-full flex-col pl-1">
+                  <div className="space-y-2">
+                    <p>
+                      <span className="text-muted-foreground">Population:</span>{" "}
+                      {activeSuburb.population !== null && activeSuburb.population !== undefined
+                        ? activeSuburb.population.toLocaleString()
+                        : "N/A"}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Wealth Decile:</span>{" "}
+                      {activeSuburb.seifaDecile !== null && activeSuburb.seifaDecile !== undefined
+                        ? `${activeSuburb.seifaDecile} / 10`
+                        : "N/A"}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Competitors / 1k residents:</span>{" "}
+                      {activeSuburb.competitorsPerThousand !== undefined && activeSuburb.competitorsPerThousand !== null
+                        ? activeSuburb.competitorsPerThousand
+                        : "N/A"}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Axel Score:</span>{" "}
+                      {activeSuburb.finalScore !== undefined && activeSuburb.finalScore !== null
+                        ? `${(activeSuburb.finalScore * 100).toFixed(0)} / 100`
+                        : "N/A"}
+                    </p>
+
+                    {fetchMessage ? <p className="text-muted-foreground">{fetchMessage}</p> : null}
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Button variant="outline" className="w-full rounded-2xl" onClick={handleFreeView}>
+                Free View
+              </Button>
+              <Button className="w-full rounded-2xl" onClick={handleDeepDive}>
+                Deep Dive
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </main>
   )
 }

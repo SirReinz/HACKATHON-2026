@@ -97,7 +97,20 @@ export function DashboardPage() {
             ) : null}
 
             {inquiries.map((inquiry) => (
-              <Card key={inquiry.id} className="border-border/50 bg-background/65 shadow-lg backdrop-blur-md">
+              <Card
+                key={inquiry.id}
+                className="cursor-pointer border-border/50 bg-background/65 shadow-lg backdrop-blur-md transition-colors hover:bg-background/80"
+                onClick={() => navigate(`/inquiry/results?inquiryId=${inquiry.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    navigate(`/inquiry/results?inquiryId=${inquiry.id}`)
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open saved inquiry ${inquiry.business_type}`}
+              >
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-lg">{inquiry.business_type}</CardTitle>
                   <CardDescription>
@@ -115,6 +128,7 @@ export function DashboardPage() {
                     <span className="text-muted-foreground">Suburbs:</span>{" "}
                     {(inquiry.results_data?.suburbs ?? []).join(", ") || "Not available"}
                   </p>
+                  <p className="pt-1 font-medium text-primary">Click to reopen inquiry</p>
                 </CardContent>
               </Card>
             ))}
