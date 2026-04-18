@@ -1,5 +1,5 @@
 import * as React from "react"
-import { SignOutButton, useAuth, useUser } from "@clerk/clerk-react"
+import { SignOutButton, useUser } from "@clerk/clerk-react"
 import { Settings2 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { createSupabaseWithAccessToken } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 type ProfileFormValues = {
   fullName: string
@@ -52,7 +52,6 @@ function initialsFromName(name: string) {
 
 export function UserProfileBox() {
   const { user } = useUser()
-  const { getToken } = useAuth()
   const [open, setOpen] = React.useState(false)
 
   const fullName = user?.fullName ?? "User"
@@ -86,14 +85,7 @@ export function UserProfileBox() {
     let cancelled = false
 
     const loadProfile = async () => {
-      const token = await getToken({ template: "supabase" })
-      if (!token) {
-        return
-      }
-
-      const authedSupabase = createSupabaseWithAccessToken(token)
-
-      const { data: profile, error } = await authedSupabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("full_name, email, mobile_number, company, role")
         .eq("id", user.id)
@@ -117,22 +109,14 @@ export function UserProfileBox() {
     return () => {
       cancelled = true
     }
-  }, [email, form, fullName, getToken, open, user])
+  }, [email, form, fullName, open, user])
 
   const onSubmit = async (values: ProfileFormValues) => {
     if (!user) {
       return
     }
 
-    const token = await getToken({ template: "supabase" })
-    if (!token) {
-      toast.error("Unable to authenticate profile update.")
-      return
-    }
-
-    const authedSupabase = createSupabaseWithAccessToken(token)
-
-    const { error } = await authedSupabase.from("profiles").upsert(
+    const { error } = await supabase.from("profiles").upsert(
       {
         id: user.id,
         full_name: values.fullName,

@@ -1,29 +1,7 @@
 import * as React from "react"
-import type { Feature, FeatureCollection, Point } from "geojson"
+import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson"
 
-import { supabase } from "@/lib/supabase"
-
-export type BBox = {
-  minLng: number
-  minLat: number
-  maxLng: number
-  maxLat: number
-}
-
-type PlaceRow = {
-  id?: string | number
-  name?: string
-  venue_name?: string
-  level1_category_name?: string
-  longitude?: number
-  latitude?: number
-  lng?: number
-  lat?: number
-  geom?: {
-    type?: string
-    coordinates?: [number, number]
-  }
-}
+import { fetchPlacesInPolygonPaginated, type PlaceRow } from "@/lib/fetchPlacesPaginated"
 
 type PlaceProperties = {
   id: string
@@ -105,51 +83,65 @@ function toFeatureCollection(
   }
 }
 
-export function useSupabasePlaces(bbox: BBox | null, categories: string[]) {
+export function useSupabasePlaces(
+  selectedGeometry: Polygon | MultiPolygon | null,
+  categories: string[],
+  queryTrigger: number
+) {
   const [data, setData] = React.useState<
     FeatureCollection<Point, PlaceProperties>
   >(emptyCollection)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-
-  const categoryKey = React.useMemo(() => [...categories].sort().join("|"), [categories])
+  const requestVersionRef = React.useRef(0)
 
   const fetchPlaces = React.useCallback(async () => {
-    if (!bbox) {
+    requestVersionRef.current += 1
+    const requestVersion = requestVersionRef.current
+
+    if (!selectedGeometry || queryTrigger <= 0) {
       setData(emptyCollection)
+      setLoading(false)
+      setError(null)
       return
     }
 
+    // Clear stale points immediately for new explicit searches.
+    setData(emptyCollection)
     setLoading(true)
     setError(null)
 
-    const { data: rows, error: rpcError } = await supabase.rpc(
-      "get_places_in_bbox",
+    const { rows, error: fetchError } = await fetchPlacesInPolygonPaginated(
+      selectedGeometry,
+      categories,
       {
-        min_lng: bbox.minLng,
-        min_lat: bbox.minLat,
-        max_lng: bbox.maxLng,
-        max_lat: bbox.maxLat,
-        category_filter: categories.length ? categories : null,
+        pageSize: 1000,
+        maxPages: 20,
       }
     )
 
-    if (rpcError) {
-      setError(rpcError.message)
+    if (fetchError) {
+      if (requestVersion !== requestVersionRef.current) {
+        return
+      }
+
+      setError(fetchError)
       setData(emptyCollection)
       setLoading(false)
       return
     }
 
-    const resultRows = Array.isArray(rows) ? (rows as PlaceRow[]) : []
-    setData(toFeatureCollection(resultRows))
+    if (requestVersion !== requestVersionRef.current) {
+      return
+    }
+
+    setData(toFeatureCollection(rows))
     setLoading(false)
-  }, [bbox, categories])
+  }, [categories, queryTrigger, selectedGeometry])
 
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPlaces()
-  }, [fetchPlaces, categoryKey])
+  }, [fetchPlaces])
 
   const telemetry = React.useMemo(() => {
     const counts = data.features.reduce(

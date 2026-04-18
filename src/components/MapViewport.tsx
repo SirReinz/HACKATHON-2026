@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson"
 import type { ExpressionSpecification, GeoJSONSource } from "mapbox-gl"
 import type { Map as MapboxMap } from "mapbox-gl"
@@ -16,20 +16,20 @@ import { FilterPanel } from "@/components/FilterPanel"
 import { SearchBar, type SearchResultItem } from "@/components/SearchBar"
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { UserProfileBox } from "@/components/UserProfileBox"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { type BBox, useSupabasePlaces } from "@/hooks/useSupabasePlaces"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 import { supabase } from "@/lib/supabase"
+import { useSupabasePlaces } from "../hooks/useSupabasePlaces"
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 
 const BOUNDARY_SOURCE_ID = "area-boundary"
 const BOUNDARY_LINE_LAYER_ID = "area-border"
 const BOUNDARY_FILL_LAYER_ID = "area-fill"
+const BUILDINGS_LAYER_ID = "3d-buildings"
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Arts and Entertainment": "#ff4df0",
@@ -148,7 +148,7 @@ const unclusteredLayer: LayerProps = {
   },
 }
 
-function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>): BBox {
+function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>) {
   let minLng = Number.POSITIVE_INFINITY
   let minLat = Number.POSITIVE_INFINITY
   let maxLng = Number.NEGATIVE_INFINITY
@@ -222,11 +222,41 @@ function applyMapStyleTweaks(map: MapboxMap, isDark: boolean) {
   }
 }
 
+function apply3DBuildings(map: MapboxMap, isDark: boolean) {
+  if (map.getLayer(BUILDINGS_LAYER_ID)) {
+    return
+  }
+
+  const labelLayer = map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id
+
+  try {
+    map.addLayer(
+      {
+        id: BUILDINGS_LAYER_ID,
+        source: "composite",
+        "source-layer": "building",
+        filter: ["==", "extrude", "true"],
+        type: "fill-extrusion",
+        minzoom: 14,
+        paint: {
+          "fill-extrusion-color": isDark ? "#273244" : "#c9c3b8",
+          "fill-extrusion-height": ["coalesce", ["get", "height"], 0],
+          "fill-extrusion-base": ["coalesce", ["get", "min_height"], 0],
+          "fill-extrusion-opacity": isDark ? 0.78 : 0.72,
+        },
+      },
+      labelLayer
+    )
+  } catch {
+    // Some styles may not expose the building source-layer; ignore safely.
+  }
+}
+
 async function fetchNominatimBoundary(query: string): Promise<{
   boundary: Feature<Polygon | MultiPolygon>
   label: string
 } | null> {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5`
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5&email=your_email@example.com`
 
   const response = await fetch(url)
   const results = (await response.json()) as NominatimResult[]
@@ -258,15 +288,16 @@ async function fetchNominatimBoundary(query: string): Promise<{
 }
 
 export function MapViewport({ region }: MapViewportProps) {
+  const navigate = useNavigate()
   const mapRef = React.useRef<MapRef | null>(null)
   const { theme } = useTheme()
 
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>(defaultCategories)
-  const [queryBBox, setQueryBBox] = React.useState<BBox | null>(null)
+  const [queryGeometry, setQueryGeometry] = React.useState<Polygon | MultiPolygon | null>(null)
+  const [queryTrigger, setQueryTrigger] = React.useState(0)
   const [highlightBoundary, setHighlightBoundary] = React.useState<
     Feature<Polygon | MultiPolygon> | null
   >(null)
-  const [pendingQueryBBox, setPendingQueryBBox] = React.useState<BBox | null>(null)
   const [activeAreaLabel, setActiveAreaLabel] = React.useState<string | null>(null)
   const [selection, setSelection] = React.useState<ClusterSelection>({
     type: "none",
@@ -283,7 +314,11 @@ export function MapViewport({ region }: MapViewportProps) {
   const [searchLoading, setSearchLoading] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
 
-  const { data, loading, error, telemetry } = useSupabasePlaces(queryBBox, selectedCategories)
+  const { data, loading, error, telemetry } = useSupabasePlaces(
+    queryGeometry,
+    selectedCategories,
+    queryTrigger
+  )
 
   const isDark =
     theme === "dark" ||
@@ -412,16 +447,11 @@ export function MapViewport({ region }: MapViewportProps) {
         }
       )
 
-      if (pendingQueryBBox) {
-        map.once("idle", () => {
-          setQueryBBox(pendingQueryBBox)
-          setPendingQueryBBox(null)
-        })
-      }
     }
 
     if (map.isStyleLoaded()) {
       applyMapStyleTweaks(map, isDark)
+      apply3DBuildings(map, isDark)
       drawBoundaryLayers()
     }
 
@@ -431,6 +461,7 @@ export function MapViewport({ region }: MapViewportProps) {
       }
 
       applyMapStyleTweaks(map, isDark)
+      apply3DBuildings(map, isDark)
       drawBoundaryLayers()
     }
 
@@ -439,13 +470,13 @@ export function MapViewport({ region }: MapViewportProps) {
     return () => {
       map.off("styledata", handleStyleData)
     }
-  }, [highlightBoundary, isDark, pendingQueryBBox])
+  }, [highlightBoundary, isDark])
 
   const generateBriefing = React.useCallback(
     async (pointCount: number) => {
       setIsBriefingLoading(true)
       const { data: response, error: invokeError } = await supabase.functions.invoke(
-        "generate-briefing",
+        "smart-responder",
         {
           body: {
             region,
@@ -477,6 +508,7 @@ export function MapViewport({ region }: MapViewportProps) {
   )
 
   const handleSearchResultSelect = React.useCallback(async (feature: MapboxSuggestion) => {
+    setQueryGeometry(null)
     setSearchLoading(true)
 
     try {
@@ -487,8 +519,6 @@ export function MapViewport({ region }: MapViewportProps) {
         setSearchLoading(false)
         return
       }
-
-      const bbox = boundaryToBBox(nominatimMatch.boundary)
 
       setSearchQuery(feature.label)
       setSearchOpen(false)
@@ -501,7 +531,8 @@ export function MapViewport({ region }: MapViewportProps) {
       })
       setBriefing(`Targeting Area: ${nominatimMatch.label}. Extracting local business intelligence...`)
       setHighlightBoundary(nominatimMatch.boundary)
-      setPendingQueryBBox(bbox)
+      setQueryGeometry(nominatimMatch.boundary.geometry)
+      setQueryTrigger((value) => value + 1)
     } finally {
       setSearchLoading(false)
     }
@@ -512,7 +543,8 @@ export function MapViewport({ region }: MapViewportProps) {
       return
     }
 
-    setQueryBBox(boundaryToBBox(highlightBoundary))
+    setQueryGeometry(highlightBoundary.geometry)
+    setQueryTrigger((value) => value + 1)
   }, [highlightBoundary])
 
   const handleMapClick = React.useCallback(
@@ -577,8 +609,7 @@ export function MapViewport({ region }: MapViewportProps) {
   )
 
   const clearSelection = React.useCallback(() => {
-    setQueryBBox(null)
-    setPendingQueryBBox(null)
+    setQueryGeometry(null)
     setHighlightBoundary(null)
     setActiveAreaLabel(null)
     setSearchResults([])
@@ -609,6 +640,7 @@ export function MapViewport({ region }: MapViewportProps) {
           initialViewState={{ longitude: 151.2093, latitude: -33.8688, zoom: 9 }}
           mapStyle={mapStyle}
           style={{ width: "100%", height: "100%" }}
+          keyboard={false}
           interactiveLayerIds={["clusters", "unclustered-point"]}
           onClick={handleMapClick}
         >
@@ -630,7 +662,7 @@ export function MapViewport({ region }: MapViewportProps) {
         <div className="h-full w-full bg-muted" />
       )}
 
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-linear-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
 
       <div className="absolute top-4 right-4 z-50 md:top-5 md:right-5">
         <ThemeToggle />
@@ -709,7 +741,7 @@ export function MapViewport({ region }: MapViewportProps) {
             <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
           </p>
           <div className="space-y-1">
-            {Object.entries(telemetry.byCategory).map(([name, count]) => (
+            {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => (
               <p key={name}>
                 <span className="text-muted-foreground">{name}:</span> {count}
               </p>
@@ -727,7 +759,13 @@ export function MapViewport({ region }: MapViewportProps) {
       </Card>
 
       <div className="absolute bottom-4 left-4 z-40 lg:bottom-6 lg:left-6">
-        <UserProfileBox />
+        <Button
+          variant="secondary"
+          className="rounded-2xl border-border/60 bg-background/70 shadow-2xl backdrop-blur-md"
+          onClick={() => navigate("/dashboard")}
+        >
+          Back to Dashboard
+        </Button>
       </div>
 
       <div className="absolute right-3 bottom-3 left-3 z-40 space-y-2 md:hidden">

@@ -90,7 +90,7 @@ export function LandingPage() {
                             key={region.value}
                             value={region.label}
                             onSelect={() => {
-                              navigate("/map", {
+                              navigate("/explore", {
                                 state: {
                                   region: region.value,
                                 },

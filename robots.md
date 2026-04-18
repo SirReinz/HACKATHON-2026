@@ -67,6 +67,49 @@ Based on our Figma designs, this uses a modern "Floating Overlay" architecture o
 - Feed the GeoJSON into a Mapbox `<Source>`.
 - **Clustered Layer:** Large circles with `point_count`. Use a primary brand color that works on both light and dark maps.
 - **Unclustered Layer:** Dots colored by `level1_category_name`. Use highly legible solid colors (e.g., robust Blue, Emerald, Amber) rather than hard-to-read neons.
-- **Interaction:** Clicking a cluster updates the "Current Selection" card and triggers `supabase.functions.invoke('generate-briefing')`, displaying the result in the "AI Overview" card.
+- **Interaction:** Clicking a cluster updates the "Current Selection" card and triggers `supabase.functions.invoke('smart-responder')`, displaying the result in the "AI Overview" card.
 
 Please provide the routing setup in `App.tsx`, the `ThemeProvider`, and the code for these specific views using shadcn/ui components heavily.
+
+# PIVOT MASTER PROMPT
+Act as a Senior Full Stack Architect. We are pivoting our "AXEL" application into a B2B SaaS platform for business owners looking for optimal real estate locations. 
+
+The new user flow is: 
+1. Dashboard -> 2. Intake Form -> 3. Interactive 3D Results Carousel -> 4. "Save Inquiry" to database.
+
+Please implement this pivot step-by-step:
+
+### 1. Database Schema (Supabase)
+Provide the SQL to create an `inquiries` table with the following columns:
+- `id` (UUID, Primary Key)
+- `user_id` (Text/UUID linking to the profiles table)
+- `business_type` (Text)
+- `target_audience` (Text)
+- `spending_bracket` (Text - e.g., "$", "$$", "$$$")
+- `results_data` (JSONB - to store the selected suburbs and telemetry)
+- `created_at` (Timestamp)
+Enable RLS so users can only view/insert their own inquiries.
+
+### 2. Restructure Routing & Views
+Update `App.tsx` (or your router) with these new routes, keeping the floating glass-morphism aesthetic:
+- `/dashboard`: A "Saved Inquiries" grid displaying past searches, plus a primary "New Location Inquiry" button.
+- `/inquiry/new`: A shadcn `<Form>` requesting `businessType`, `targetAudience`, and `spendingBracket` (Select: $, $$, $$$). Submitting this pushes the data to React state and routes to the carousel.
+- `/inquiry/results`: The 3D Map Carousel View.
+- `/explore`: Move our existing 2D search map here as a "Free Explore" mode.
+
+### 3. The 3D Map Carousel View (`/inquiry/results`)
+This is the cinematic core of the app. 
+- **State:** Hardcode the demo results array to three suburbs: `['Redfern', 'Darlington', 'Barangaroo']`. Track the `activeIndex` (0, 1, or 2).
+- **The Mapbox Engine:** - When the `activeIndex` changes, use `map.flyTo()` to pan smoothly to the new suburb.
+  - **CRITICAL 3D SETUP:** Add `pitch: 60` and `bearing: -20` to the map configuration to tilt the camera.
+  - Add the Mapbox `3d-buildings` layer (extrude buildings based on height) so the city looks 3-dimensional.
+  - Execute the Nominatim boundary fetch and draw the glowing polygon for the active suburb, just like we did in Explore mode.
+
+### 4. Floating UI & AI Summaries
+- **Left/Right Navigation:** Add floating glass-morphism `<Button>` components on the left and right edges of the screen to cycle the `activeIndex`.
+- **Right Panel (The Intelligence Briefing):** A tall floating `<Card>` on the right side.
+  - Top section: Display the active suburb name and raw venue counts (querying `get_places_in_polygon`).
+  - Middle section: The AI Summary. Trigger the `smart-responder` Edge Function. **CRITICAL:** Pass the user's `businessType`, `targetAudience`, `spendingBracket`, AND the active `suburb_name` to the function so the AI tailors the advice specifically to their business plan in that location.
+- **Top Bar:** A floating header with a prominent "Save Inquiry" button. Clicking this executes a Supabase `INSERT` into the `inquiries` table with the form state and the 3 results, then redirects to `/dashboard`.
+
+Please provide the SQL migration and the code for the new components (`InquiryForm.tsx`, `ResultsCarousel.tsx`).

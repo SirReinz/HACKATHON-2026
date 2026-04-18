@@ -1,5 +1,9 @@
 import { SignedIn, SignedOut } from "@clerk/clerk-react"
 import { Navigate, Route, Routes } from "react-router-dom"
+import { InquiryFlowProvider } from "@/context/InquiryFlowContext"
+import { DashboardPage } from "@/pages/DashboardPage"
+import { InquiryFormPage } from "@/pages/InquiryForm"
+import { ResultsCarouselPage } from "@/pages/ResultsCarousel"
 import { SignInPage } from "@/pages/SignInPage"
 import { SignUpPage } from "@/pages/SignUpPage"
 import { DetailsPage } from "@/pages/DetailsPage"
@@ -20,29 +24,71 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route
-        path="/map"
-        element={
-          <ProtectedRoute>
-            <MapPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/profile"
-        element={
-          <ProtectedRoute>
-            <ProfilePage />
-          </ProtectedRoute>
-        }
-      />
-      <Route path="/details" element={<DetailsPage />} />
-      <Route path="/sign-in/*" element={<SignInPage />} />
-      <Route path="/sign-up/*" element={<SignUpPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <InquiryFlowProvider>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <>
+              <SignedIn>
+                <Navigate to="/dashboard" replace />
+              </SignedIn>
+              <SignedOut>
+                <LandingPage />
+              </SignedOut>
+            </>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inquiry/new"
+          element={
+            <ProtectedRoute>
+              <InquiryFormPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inquiry/results"
+          element={
+            <ProtectedRoute>
+              <ResultsCarouselPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/explore"
+          element={
+            <ProtectedRoute>
+              <MapPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/map"
+          element={<Navigate to="/explore" replace />}
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/details" element={<DetailsPage />} />
+        <Route path="/sign-in/*" element={<SignInPage />} />
+        <Route path="/sign-up/*" element={<SignUpPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </InquiryFlowProvider>
   )
 }
 

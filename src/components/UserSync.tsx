@@ -1,11 +1,10 @@
 import * as React from "react"
-import { useAuth, useUser } from "@clerk/clerk-react"
+import { useUser } from "@clerk/clerk-react"
 
-import { createSupabaseWithAccessToken } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 export function UserSync() {
   const { isLoaded: userLoaded, isSignedIn, user } = useUser()
-  const { getToken } = useAuth()
 
   React.useEffect(() => {
     if (!userLoaded || !isSignedIn || !user) {
@@ -15,14 +14,7 @@ export function UserSync() {
     let cancelled = false
 
     const syncProfile = async () => {
-      const token = await getToken({ template: "supabase" })
-      if (!token) {
-        return
-      }
-
-      const authedSupabase = createSupabaseWithAccessToken(token)
-
-      const { data: existingProfile, error: selectError } = await authedSupabase
+      const { data: existingProfile, error: selectError } = await supabase
         .from("profiles")
         .select("id")
         .eq("id", user.id)
@@ -33,7 +25,7 @@ export function UserSync() {
       }
 
       if (!existingProfile) {
-        await authedSupabase.from("profiles").upsert(
+        await supabase.from("profiles").upsert(
           {
             id: user.id,
             full_name: user.fullName ?? "",
@@ -49,7 +41,7 @@ export function UserSync() {
     return () => {
       cancelled = true
     }
-  }, [getToken, isSignedIn, user, userLoaded])
+  }, [isSignedIn, user, userLoaded])
 
   return null
 }

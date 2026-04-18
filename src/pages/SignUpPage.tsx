@@ -10,7 +10,7 @@ export function SignUpPage() {
             path="/sign-up"
             signInUrl="/sign-in"
             routing="path"
-            forceRedirectUrl="/map"
+            forceRedirectUrl="/dashboard"
           />
         </div>
         <p className="text-center text-sm text-muted-foreground">
