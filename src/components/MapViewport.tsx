@@ -39,16 +39,16 @@ const BOUNDARY_LINE_LAYER_ID = "area-border"
 const BOUNDARY_FILL_LAYER_ID = "area-fill"
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "Arts and Entertainment":            "#ff4df0",
-  "Business and Professional Service": "#9d4dff",
-  "Community and Government":          "#4f8cff",
-  "Dining and Drinking":               "#ff4da6",
-  Event:                               "#ff8a00",
-  "Health and Medicine":               "#00f0a4",
-  "Landmarks and Outdoors":            "#3bff6d",
-  Retail:                              "#ffd200",
-  "Sports and Recreation":             "#00e5ff",
-  "Travel and Transportation":         "#35b6ff",
+  "Arts and Entertainment":            "#0d4c3c",
+  "Business and Professional Service": "#003f5c",
+  "Community and Government":          "#2c4875",
+  "Dining and Drinking":               "#8a508f",
+  Event:                               "#bc5090",
+  "Health and Medicine":               "#ff6361",
+  "Landmarks and Outdoors":            "#ff8531",
+  Retail:                              "#ffa600",
+  "Sports and Recreation":             "#ffd380",
+  "Travel and Transportation":         "#0db488",
 }
 
 // ---------------------------------------------------------------------------
