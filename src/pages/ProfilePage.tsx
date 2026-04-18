@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -17,7 +16,6 @@ import {
 } from "@/components/ui/form"
 
 type ProfileSettingsForm = {
-  mobileNumber: string
   company: string
   role: string
 }
@@ -27,7 +25,6 @@ export function ProfilePage() {
 
   const form = useForm<ProfileSettingsForm>({
     defaultValues: {
-      mobileNumber: "",
       company: "",
       role: "",
     },
@@ -73,22 +70,6 @@ export function ProfilePage() {
           <CardContent>
             <Form {...form}>
               <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
-                <FormField
-                  control={form.control}
-                  name="mobileNumber"
-                  rules={{ required: "Mobile Number is required" }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Mobile Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="+61 400 000 000" {...field} />
-                      </FormControl>
-                      <FormDescription>Used for operations alerts and contact.</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
                 <FormField
                   control={form.control}
                   name="company"

@@ -27,7 +27,6 @@ import { supabase } from "@/lib/supabase"
 
 type ProfileFormValues = {
   fullName: string
-  mobileNumber: string
   email: string
   company: string
   role: string
@@ -60,7 +59,6 @@ export function UserProfileBox() {
   const form = useForm<ProfileFormValues>({
     defaultValues: {
       fullName,
-      mobileNumber: "",
       email,
       company: "",
       role: "Owner",
@@ -70,7 +68,6 @@ export function UserProfileBox() {
   React.useEffect(() => {
     form.reset({
       fullName,
-      mobileNumber: form.getValues("mobileNumber"),
       email,
       company: form.getValues("company"),
       role: form.getValues("role") || "Owner",
@@ -87,7 +84,7 @@ export function UserProfileBox() {
     const loadProfile = async () => {
       const { data: profile, error } = await supabase
         .from("profiles")
-        .select("full_name, email, mobile_number, company, role")
+        .select("full_name, email, company, role")
         .eq("id", user.id)
         .maybeSingle()
 
@@ -98,7 +95,6 @@ export function UserProfileBox() {
       form.reset({
         fullName: profile.full_name || fullName,
         email: profile.email || email,
-        mobileNumber: profile.mobile_number || "",
         company: profile.company || "",
         role: profile.role || "Owner",
       })
@@ -121,7 +117,6 @@ export function UserProfileBox() {
         id: user.id,
         full_name: values.fullName,
         email: values.email,
-        mobile_number: values.mobileNumber,
         company: values.company,
         role: values.role,
       },
@@ -210,20 +205,6 @@ export function UserProfileBox() {
                           <FormLabel>Full Name</FormLabel>
                           <FormControl>
                             <Input placeholder="Your full name" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="mobileNumber"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Mobile Number</FormLabel>
-                          <FormControl>
-                            <Input placeholder="+61 400 000 000" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>

@@ -38,6 +38,7 @@ type NominatimResult = {
 // ── UPDATED: ResultSuburb now carries scoring metadata ─────────────────────
 type ResultSuburb = {
   name: string
+  displayName?: string
   fallbackCenter: [number, number]
   // Scoring fields (populated from edge function)
   finalScore?: number
@@ -62,6 +63,10 @@ type SummaryFeatureProperties = {
   level1_category_name?: string
   category?: string
   level1_category?: string
+}
+
+function suburbLabel(suburb: ResultSuburb): string {
+  return suburb.displayName ?? suburb.name
 }
 
 // ── REMOVED: hardcoded demoResults ────────────────────────────────────────
@@ -428,14 +433,15 @@ export function ResultsCarouselPage() {
       setFetchMessage("Fetching local data...")
       setBriefingLoading(false)
 
-      const foundBoundary = await fetchNominatimBoundary(suburb.name)
+      const label = suburbLabel(suburb)
+      const foundBoundary = await fetchNominatimBoundary(label)
       if (shouldCancel()) return
 
       if (!foundBoundary) {
         setBoundary(null)
         setVenueData({ type: "FeatureCollection", features: [] })
         setFetchMessage(null)
-        setAiSummary(`No boundary data could be resolved for ${suburb.name}.`)
+        setAiSummary(`No boundary data could be resolved for ${label}.`)
         return
       }
 
@@ -485,7 +491,7 @@ export function ResultsCarouselPage() {
       if (resultRows.length === 0) {
         setVenueData({ type: "FeatureCollection", features: [] })
         setFetchMessage(null)
-        setAiSummary(`No local venues were found for ${suburb.name}.`)
+        setAiSummary(`No local venues were found for ${label}.`)
         return
       }
 
@@ -495,7 +501,7 @@ export function ResultsCarouselPage() {
       const venueSummary = aggregateVenueSummary(
         nextVenueData as FeatureCollection<Point, SummaryFeatureProperties>
       )
-      const requestKey = `${suburb.name}:${nextVenueData.features.length}:${JSON.stringify(venueSummary.byCategory)}`
+      const requestKey = `${label}:${nextVenueData.features.length}:${JSON.stringify(venueSummary.byCategory)}`
 
       if (lastSmartResponderRequestKey === requestKey) {
         setFetchMessage(null)
@@ -516,7 +522,7 @@ export function ResultsCarouselPage() {
         businessType: activeDraft.businessType,
         targetAudience: activeDraft.targetAudience,
         spendingBracket: activeDraft.spendingBracket,
-        suburbName: suburb.name,
+        suburbName: label,
         venueSummary,
         venueSample,
         scoringContext: {
@@ -679,9 +685,9 @@ export function ResultsCarouselPage() {
   React.useEffect(() => {
     setCountsBySuburb((prev) => ({
       ...prev,
-      [activeSuburb.name]: telemetry.total,
+      [suburbLabel(activeSuburb)]: telemetry.total,
     }))
-  }, [activeSuburb.name, telemetry.total])
+  }, [activeSuburb.displayName, activeSuburb.name, telemetry.total])
 
   const goNext = () => setActiveIndex((v) => (v + 1) % scoredResults.length)
   const goPrevious = () => setActiveIndex((v) => (v - 1 + scoredResults.length) % scoredResults.length)
@@ -705,13 +711,13 @@ export function ResultsCarouselPage() {
       target_audience: draft.targetAudience,
       spending_bracket: draft.spendingBracket,
       results_data: {
-        suburbs: scoredResults.map((r) => r.name),
-        active_suburb: activeSuburb.name,
+        suburbs: scoredResults.map((r) => suburbLabel(r)),
+        active_suburb: suburbLabel(activeSuburb),
         venue_counts_by_suburb: countsBySuburb,
         telemetry_by_category: telemetry.byCategory,
         // ── NEW: save scoring metadata too ──
         scoring: scoredResults.map((r) => ({
-          name: r.name,
+          name: suburbLabel(r),
           finalScore: r.finalScore,
           seifaDecile: r.seifaDecile,
           population: r.population,
@@ -776,14 +782,14 @@ export function ResultsCarouselPage() {
             <p className="text-xs tracking-wide text-muted-foreground uppercase">
               {scoringLoading ? "Scoring suburbs..." : "3D Results Carousel"}
             </p>
-            <h1 className="text-lg font-semibold">{activeSuburb.name}</h1>
+            <h1 className="text-lg font-semibold">{suburbLabel(activeSuburb)}</h1>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/20 bg-background/40 px-3 py-2">
             {scoredResults.map((suburb, index) => {
               const isActive = index === activeIndex
               return (
-                <React.Fragment key={suburb.name}>
+                <React.Fragment key={`${suburbLabel(suburb)}-${index}`}>
                   <button
                     type="button"
                     onClick={() => jumpToSuburb(index)}
@@ -793,7 +799,7 @@ export function ResultsCarouselPage() {
                         : "bg-background/40 text-muted-foreground hover:bg-background/60 hover:text-foreground"
                     }`}
                   >
-                    #{index + 1} {suburb.name}
+                    #{index + 1} {suburbLabel(suburb)}
                     {isActive ? (
                       <span className="pointer-events-none absolute right-2 bottom-0 left-2 h-0.5 rounded-full bg-primary shadow-[0_0_10px_rgba(56,189,248,0.85)]" />
                     ) : null}
@@ -839,7 +845,7 @@ export function ResultsCarouselPage() {
         <CardContent className="space-y-4">
           {/* Suburb stats card */}
           <div className="space-y-1 rounded-2xl border border-border/60 bg-background/35 p-3 text-sm">
-            <p><span className="text-muted-foreground">Suburb:</span> {activeSuburb.name}</p>
+            <p><span className="text-muted-foreground">Suburb:</span> {suburbLabel(activeSuburb)}</p>
             <p><span className="text-muted-foreground">Raw Venue Count:</span> {telemetry.total}</p>
 
             {/* ── NEW: scoring stats ── */}
