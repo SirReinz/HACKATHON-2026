@@ -6,7 +6,6 @@ import { InquiryFormPage } from "@/pages/InquiryForm"
 import { ResultsCarouselPage } from "@/pages/ResultsCarousel"
 import { SignInPage } from "@/pages/SignInPage"
 import { SignUpPage } from "@/pages/SignUpPage"
-import { DetailsPage } from "@/pages/DetailsPage"
 import { LandingPage } from "@/pages/LandingPage"
 import { MapPage } from "@/pages/MapPage"
 import { ProfilePage } from "@/pages/ProfilePage"
@@ -83,7 +82,6 @@ export function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/details" element={<DetailsPage />} />
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

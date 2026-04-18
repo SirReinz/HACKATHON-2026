@@ -18,6 +18,7 @@ import { useInquiryFlow } from "@/context/InquiryFlowContext"
 import { fetchPlacesInPolygonPaginated, type PlaceRow } from "@/lib/fetchPlacesPaginated"
 import { CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
 import { supabase } from "@/lib/supabase"
+import { DetailsPage } from "@/pages/DetailsPage"
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 const BOUNDARY_SOURCE_ID = "suburb-boundary"
@@ -352,6 +353,7 @@ export function ResultsCarouselPage() {
   // ── NEW: scoring state ──────────────────────────────────────────────────
   const [scoredResults, setScoredResults] = React.useState<ResultSuburb[]>(FALLBACK_RESULTS)
   const [scoringLoading, setScoringLoading] = React.useState(false)
+  const [showDeepDive, setShowDeepDive] = React.useState(false)
 
   const prevCountRef = React.useRef(0)
   const activeRunIdRef = React.useRef(0)
@@ -839,7 +841,7 @@ export function ResultsCarouselPage() {
   }
 
   const handleDeepDive = () => {
-    navigate("/details")
+    setShowDeepDive(true)
   }
 
   const handleSaveInquiry = async () => {
@@ -1093,6 +1095,15 @@ export function ResultsCarouselPage() {
           </CardContent>
         </Card>
       </div>
+
+      <DetailsPage
+        open={showDeepDive}
+        onClose={() => setShowDeepDive(false)}
+        scoredResults={scoredResults}
+        initialActiveIndex={activeIndex}
+        countsBySuburb={countsBySuburb}
+        initialAiSummary={aiSummary}
+      />
     </main>
   )
 }
