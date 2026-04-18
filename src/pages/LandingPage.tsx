@@ -1,11 +1,11 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
-import { useUser } from "@clerk/clerk-react"
 import Map from "react-map-gl/mapbox"
+import axelLogo from "@/assets/axel-logo.svg"
 
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
@@ -32,7 +32,6 @@ const regions: Region[] = [
 
 export function LandingPage() {
   const navigate = useNavigate()
-  const { user } = useUser()
   const { theme } = useTheme()
   const [open, setOpen] = React.useState(false)
 
@@ -43,8 +42,6 @@ export function LandingPage() {
   const mapStyle = isDark
     ? "mapbox://styles/mapbox/dark-v11"
     : "mapbox://styles/mapbox/light-v11"
-
-  const firstName = user?.firstName ?? "there"
 
   return (
     <main className="relative h-svh w-full overflow-hidden">
@@ -72,44 +69,48 @@ export function LandingPage() {
 
       <div className="absolute inset-0 z-10 grid place-items-center p-6">
         <Card className="w-full max-w-2xl border-white/25 bg-card/70 shadow-2xl backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-3xl sm:text-4xl">Welcome {firstName}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">Where are you headed?</p>
-            <Popover open={open} onOpenChange={setOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-start rounded-2xl">
-                  Select a region
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-                <Command>
-                  <CommandInput placeholder="Search region..." />
-                  <CommandList>
-                    <CommandEmpty>No regions found.</CommandEmpty>
-                    <CommandGroup heading="Regions">
-                      {regions.map((region) => (
-                        <CommandItem
-                          key={region.value}
-                          value={region.label}
-                          onSelect={() => {
-                            navigate("/map", {
-                              state: {
-                                region: region.value,
-                              },
-                            })
-                            setOpen(false)
-                          }}
-                        >
-                          {region.label}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+          <CardContent className="grid grid-cols-[1fr_auto] gap-5 p-6 sm:p-8">
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold sm:text-4xl">Welcome To Axel</h1>
+              <p className="text-sm text-muted-foreground">Where are you headed?</p>
+              <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start rounded-2xl">
+                    Select a region
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search region..." />
+                    <CommandList>
+                      <CommandEmpty>No regions found.</CommandEmpty>
+                      <CommandGroup heading="Regions">
+                        {regions.map((region) => (
+                          <CommandItem
+                            key={region.value}
+                            value={region.label}
+                            onSelect={() => {
+                              navigate("/map", {
+                                state: {
+                                  region: region.value,
+                                },
+                              })
+                              setOpen(false)
+                            }}
+                          >
+                            {region.label}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="flex items-start justify-end">
+              <img src={axelLogo} alt="Axel logo" className="size-20 shrink-0 sm:size-24" />
+            </div>
           </CardContent>
         </Card>
       </div>

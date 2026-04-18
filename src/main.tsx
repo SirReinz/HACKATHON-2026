@@ -6,6 +6,7 @@ import { BrowserRouter } from "react-router-dom"
 import "./index.css"
 import "mapbox-gl/dist/mapbox-gl.css"
 import App from "./App.tsx"
+import { UserSync } from "@/components/UserSync"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -20,6 +21,7 @@ createRoot(document.getElementById("root")!).render(
     <ClerkProvider publishableKey={clerkPublishableKey}>
       <BrowserRouter>
         <ThemeProvider>
+          <UserSync />
           <App />
           <Toaster />
         </ThemeProvider>
