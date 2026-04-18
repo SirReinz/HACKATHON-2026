@@ -4,8 +4,10 @@ import { ClerkProvider } from "@clerk/clerk-react"
 import { BrowserRouter } from "react-router-dom"
 
 import "./index.css"
+import "mapbox-gl/dist/mapbox-gl.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
+import { Toaster } from "@/components/ui/sonner"
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
@@ -19,6 +21,7 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <ThemeProvider>
           <App />
+          <Toaster />
         </ThemeProvider>
       </BrowserRouter>
     </ClerkProvider>

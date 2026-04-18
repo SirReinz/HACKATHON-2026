@@ -121,6 +121,19 @@
   * {
     @apply border-border outline-ring/50;
     }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    }
+  *::-webkit-scrollbar-track {
+    @apply bg-muted/30;
+    }
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-700/70;
+    }
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+    }
   body {
     @apply bg-background text-foreground;
     }

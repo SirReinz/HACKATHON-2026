@@ -27,3 +27,46 @@
 - Speed and visual "wow" factor are the priorities. 
 - Do not over-engineer state management; use React Context or simple state if Redux/Zustand is too slow to implement.
 - If a complex PostGIS query is failing, write a simplified version that works for the demo rather than spending hours debugging.
+
+# MASTER PROMPT
+Act as a Senior React/TypeScript Architect. We are building the frontend for our "AXEL" Geospatial Dashboard. I have a Vite + React + TS project, Tailwind, and my `.env.local` configured with Mapbox, Supabase, and Clerk. 
+
+Please reference the `robots.md` file for strict tech stack rules. We are NOT forcing strict dark mode. We want a clean, modern SaaS aesthetic using the native shadcn/ui theme system (Light/Dark mode support).
+
+Based on our Figma designs, this uses a modern "Floating Overlay" architecture over a full-screen map. Please build the application with React Router using the following 4 primary views:
+
+### 1. App Shell & Theme Setup
+- Implement a `ThemeProvider` (e.g., using `next-themes` or standard shadcn setup) to support toggling between Light and Dark modes. Include a theme toggle button in the UI.
+
+### 2. Landing Page View (`/`)
+- **Background:** Full-screen disabled Mapbox map.
+- **Foreground:** A centered floating glass-morphism `<Card>`.
+- **Content:** Large welcome text ("Welcome [User First Name]"). Below it, a search/command input asking "Where are you headed?". 
+- **Interaction:** Use a shadcn `<Command>` or `<Popover>` dropdown that lets users select regions (e.g., Australia). Selecting a region routes the user to `/map`.
+
+### 3. Main Map Interface (`/map`)
+- **Background:** Interactive Mapbox GL JS map. **CRITICAL:** Make the Mapbox `mapStyle` dynamic based on the active shadcn theme (use `mapbox://styles/mapbox/light-v11` for light mode, and `dark-v11` for dark mode).
+- **Foreground (Floating UI):** Place floating shadcn `<Card>` components over the map:
+  - *Top-Left Card:* "Filter of Area" containing category checkboxes (Dining, Health, Retail).
+  - *Top-Right Card:* "AI Overview & Description". This is where the Gemini Edge Function briefing will stream in.
+  - *Bottom-Right Card:* "Current Selection" showing raw telemetry (venue counts).
+  - *Bottom-Left:* A simple "Back" button to return to `/`.
+
+### 4. Deep Dive Analytics View (`/details`)
+- A clean, scrollable page layout (no map) using standard shadcn background colors.
+- **Layout:** Two main columns.
+- **Left Column:** "Numbers" metrics (shadcn stat cards) and an "Export CSV" `<Button>` at the bottom.
+- **Right Column:** A vertical stack of text sections: "Overview", "Key Insights:", "Considerations:", and "Tips and Tricks".
+
+### Core Data Hook (`useSupabasePlaces`)
+- Create a hook using `@supabase/supabase-js`.
+- **CRITICAL:** Use `supabase.rpc('get_places_in_bbox', { min_lng, min_lat, max_lng, max_lat, category_filter })` to fetch data based on the map's current bounding box. Do NOT use standard `.eq()` filters for PostGIS.
+- Map the returned data to a GeoJSON FeatureCollection.
+
+### Mapbox Layer Styling
+- Feed the GeoJSON into a Mapbox `<Source>`.
+- **Clustered Layer:** Large circles with `point_count`. Use a primary brand color that works on both light and dark maps.
+- **Unclustered Layer:** Dots colored by `level1_category_name`. Use highly legible solid colors (e.g., robust Blue, Emerald, Amber) rather than hard-to-read neons.
+- **Interaction:** Clicking a cluster updates the "Current Selection" card and triggers `supabase.functions.invoke('generate-briefing')`, displaying the result in the "AI Overview" card.
+
+Please provide the routing setup in `App.tsx`, the `ThemeProvider`, and the code for these specific views using shadcn/ui components heavily.
