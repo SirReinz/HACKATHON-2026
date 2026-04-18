@@ -31,7 +31,35 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 
 // ---------------------------------------------------------------------------
-// Icon map — mirrors CATEGORY_ICON_MAP in selectionIcons.ts
+// Contrast helper — WCAG relative luminance → #111827 or #ffffff
+// Handles full hex (#rrggbb) and shorthand (#rgb)
+// ---------------------------------------------------------------------------
+
+function getContrastColor(hex: string): string {
+  const clean = hex.replace("#", "")
+  const full  =
+    clean.length === 3
+      ? clean.split("").map((c) => c + c).join("")
+      : clean
+
+  const r = parseInt(full.substring(0, 2), 16)
+  const g = parseInt(full.substring(2, 4), 16)
+  const b = parseInt(full.substring(4, 6), 16)
+
+  const toLinear = (c: number) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+
+  const luminance =
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
+
+  // > 0.179 is the WCAG threshold between "light" and "dark" backgrounds
+  return luminance > 0.179 ? "#111827" : "#ffffff"
+}
+
+// ---------------------------------------------------------------------------
+// Icon map
 // ---------------------------------------------------------------------------
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
@@ -127,12 +155,9 @@ export function FilterPanel({
                         onSelect={() => toggleCategory(category)}
                         className="gap-2"
                       >
-                        {/* Selected checkmark */}
                         <Check
                           className={`size-4 shrink-0 ${selected ? "opacity-100" : "opacity-0"}`}
                         />
-
-                        {/* Category icon */}
                         {Icon && (
                           <Icon
                             className="size-4 shrink-0"
@@ -140,7 +165,6 @@ export function FilterPanel({
                             strokeWidth={2}
                           />
                         )}
-
                         <span>{category}</span>
                       </CommandItem>
                     )
@@ -157,27 +181,45 @@ export function FilterPanel({
             <div className="flex flex-wrap gap-2">
               {selectedCategories.length ? (
                 selectedCategories.map((category) => {
-                  const Icon  = CATEGORY_ICONS[category]
-                  const color = categoryColors?.[category] ?? "#64748b"
+                  const Icon      = CATEGORY_ICONS[category]
+                  const bgColor   = categoryColors?.[category] ?? "#64748b"
+                  const textColor = getContrastColor(bgColor)
 
                   return (
                     <Badge
                       key={category}
                       variant="secondary"
-                      className="gap-1.5 border-transparent pr-1 text-white"
-                      style={{ backgroundColor: color }}
+                      className="gap-1.5 border-transparent pr-1"
+                      style={{
+                        backgroundColor: bgColor,
+                        color:           textColor,
+                      }}
                     >
-                      {/* Icon inside badge */}
+                      {/* Icon inherits textColor */}
                       {Icon && (
-                        <Icon className="size-3 shrink-0" strokeWidth={2.5} />
+                        <Icon
+                          className="size-3 shrink-0"
+                          style={{ color: textColor }}
+                          strokeWidth={2.5}
+                        />
                       )}
 
-                      <span>{category}</span>
+                      <span
+                        style={{
+                          textShadow: textColor === "#ffffff"
+                            ? "0 1px 2px rgba(0,0,0,0.45)"
+                            : "0 1px 2px rgba(255,255,255,0.45)",
+                        }}
+                      >
+                        {category}
+                      </span>
 
+                      {/* Remove button also inherits textColor */}
                       <button
                         type="button"
                         aria-label={`Remove ${category}`}
-                        className="rounded-full p-0.5 hover:bg-foreground/10"
+                        className="rounded-full p-0.5 hover:bg-black/10"
+                        style={{ color: textColor }}
                         onClick={() => removeCategory(category)}
                       >
                         <X className="size-3" />
