@@ -1,8 +1,8 @@
 import * as React from "react"
 import { Link } from "react-router-dom"
-import type { FeatureCollection, Point } from "geojson"
+import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson"
 import type { ExpressionSpecification, GeoJSONSource } from "mapbox-gl"
-import { Search, X } from "lucide-react"
+import type { Map as MapboxMap } from "mapbox-gl"
 import Map, {
   Layer,
   type LayerProps,
@@ -13,24 +13,36 @@ import Map, {
 } from "react-map-gl/mapbox"
 
 import { FilterPanel } from "@/components/FilterPanel"
+import { SearchBar, type SearchResultItem } from "@/components/SearchBar"
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { UserProfileBox } from "@/components/UserProfileBox"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { type BBox, useSupabasePlaces } from "@/hooks/useSupabasePlaces"
+import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 import { supabase } from "@/lib/supabase"
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
+
+const BOUNDARY_SOURCE_ID = "area-boundary"
+const BOUNDARY_LINE_LAYER_ID = "area-border"
+const BOUNDARY_FILL_LAYER_ID = "area-fill"
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "Arts and Entertainment": "#ff4df0",
+  "Business and Professional Service": "#9d4dff",
+  "Community and Government": "#4f8cff",
+  "Dining and Drinking": "#ff4da6",
+  Event: "#ff8a00",
+  "Health and Medicine": "#00f0a4",
+  "Landmarks and Outdoors": "#3bff6d",
+  Retail: "#ffd200",
+  "Sports and Recreation": "#00e5ff",
+  "Travel and Transportation": "#35b6ff",
+}
 
 type ClusterSelection = {
   type: "cluster" | "point" | "none"
@@ -38,21 +50,21 @@ type ClusterSelection = {
   count: number
 }
 
-type GeocodeFeature = {
-  id: string
-  place_name: string
-  center: [number, number]
+type MapboxSuggestion = SearchResultItem
+
+type NominatimResult = {
+  display_name: string
+  geojson?: {
+    type?: string
+    coordinates?: unknown
+  }
 }
 
 type MapViewportProps = {
   region: string
 }
 
-const defaultCategories = [
-  "Dining and Drinking",
-  "Health and Medicine",
-  "Retail",
-]
+const defaultCategories = ["Dining and Drinking", "Health and Medicine", "Retail"]
 
 const clusterRadiusExpression: ExpressionSpecification = [
   "step",
@@ -66,17 +78,44 @@ const clusterRadiusExpression: ExpressionSpecification = [
   46,
 ]
 
+const categoryColorExpression: ExpressionSpecification = [
+  "match",
+  ["get", "level1_category_name"],
+  "Arts and Entertainment",
+  CATEGORY_COLORS["Arts and Entertainment"],
+  "Business and Professional Service",
+  CATEGORY_COLORS["Business and Professional Service"],
+  "Community and Government",
+  CATEGORY_COLORS["Community and Government"],
+  "Dining and Drinking",
+  CATEGORY_COLORS["Dining and Drinking"],
+  "Event",
+  CATEGORY_COLORS.Event,
+  "Health and Medicine",
+  CATEGORY_COLORS["Health and Medicine"],
+  "Landmarks and Outdoors",
+  CATEGORY_COLORS["Landmarks and Outdoors"],
+  "Retail",
+  CATEGORY_COLORS.Retail,
+  "Sports and Recreation",
+  CATEGORY_COLORS["Sports and Recreation"],
+  "Travel and Transportation",
+  CATEGORY_COLORS["Travel and Transportation"],
+  "#9ca3af",
+]
+
 const clusterLayer: LayerProps = {
   id: "clusters",
   type: "circle",
   source: "places",
   filter: ["has", "point_count"],
   paint: {
-    "circle-color": "#0ea5e9",
+    "circle-color": "#00e5ff",
     "circle-radius": clusterRadiusExpression,
-    "circle-opacity": 0.82,
-    "circle-stroke-width": 2,
+    "circle-opacity": 0.95,
+    "circle-stroke-width": 3,
     "circle-stroke-color": "#f8fafc",
+    "circle-blur": 0.1,
   },
 }
 
@@ -91,7 +130,7 @@ const clusterCountLayer: LayerProps = {
     "text-size": 12,
   },
   paint: {
-    "text-color": "#0f172a",
+    "text-color": "#111827",
   },
 }
 
@@ -101,35 +140,121 @@ const unclusteredLayer: LayerProps = {
   source: "places",
   filter: ["!", ["has", "point_count"]],
   paint: {
-    "circle-color": [
-      "match",
-      ["get", "level1_category_name"],
-      "Dining and Drinking",
-      "#2563eb",
-      "Health and Medicine",
-      "#10b981",
-      "Retail",
-      "#f59e0b",
-      "#64748b",
-    ],
+    "circle-color": categoryColorExpression,
     "circle-radius": 8,
-    "circle-stroke-width": 1.5,
+    "circle-stroke-width": 2.8,
     "circle-stroke-color": "#ffffff",
+    "circle-blur": 0.08,
   },
 }
 
-function getCurrentBounds(map: MapRef): BBox | null {
-  const bounds = map.getBounds()
-  if (!bounds) {
+function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>): BBox {
+  let minLng = Number.POSITIVE_INFINITY
+  let minLat = Number.POSITIVE_INFINITY
+  let maxLng = Number.NEGATIVE_INFINITY
+  let maxLat = Number.NEGATIVE_INFINITY
+
+  const visit = (lng: number, lat: number) => {
+    minLng = Math.min(minLng, lng)
+    minLat = Math.min(minLat, lat)
+    maxLng = Math.max(maxLng, lng)
+    maxLat = Math.max(maxLat, lat)
+  }
+
+  if (boundary.geometry.type === "Polygon") {
+    boundary.geometry.coordinates.forEach((ring) => {
+      ring.forEach(([lng, lat]) => visit(lng, lat))
+    })
+  } else {
+    boundary.geometry.coordinates.forEach((polygon) => {
+      polygon.forEach((ring) => {
+        ring.forEach(([lng, lat]) => visit(lng, lat))
+      })
+    })
+  }
+
+  return { minLng, minLat, maxLng, maxLat }
+}
+
+function safeSetPaint(
+  map: MapboxMap,
+  layerId: string,
+  property: string,
+  value: string | number
+) {
+  try {
+    ;(map as unknown as { setPaintProperty: (layer: string, prop: string, val: string | number) => void }).setPaintProperty(layerId, property, value)
+  } catch {
+    // Ignore missing/incompatible paint properties for style layers.
+  }
+}
+
+function applyMapStyleTweaks(map: MapboxMap, isDark: boolean) {
+  const style = map.getStyle()
+  const layers = style?.layers ?? []
+
+  for (const layer of layers) {
+    if (layer.type === "background") {
+      safeSetPaint(map, layer.id, "background-color", isDark ? "#101317" : "#f1f3f5")
+    }
+
+    if (layer.type === "fill" && layer.id.includes("land")) {
+      safeSetPaint(map, layer.id, "fill-color", isDark ? "#161b22" : "#eceff3")
+    }
+
+    if (layer.type === "fill" && layer.id.includes("water")) {
+      safeSetPaint(map, layer.id, "fill-color", isDark ? "#0f2235" : "#d7e3f5")
+    }
+
+    if (layer.type === "line" && layer.id.includes("road")) {
+      safeSetPaint(map, layer.id, "line-color", isDark ? "#2d3440" : "#9aa3af")
+      safeSetPaint(map, layer.id, "line-opacity", isDark ? 0.9 : 0.8)
+    }
+
+    if (
+      layer.type === "line" &&
+      (layer.id.includes("admin") || layer.id.includes("boundary"))
+    ) {
+      safeSetPaint(map, layer.id, "line-color", isDark ? "#4b5563" : "#111827")
+      safeSetPaint(map, layer.id, "line-width", isDark ? 1.25 : 1.05)
+      safeSetPaint(map, layer.id, "line-opacity", isDark ? 0.95 : 0.9)
+    }
+  }
+}
+
+async function fetchNominatimBoundary(query: string): Promise<{
+  boundary: Feature<Polygon | MultiPolygon>
+  label: string
+} | null> {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5`
+
+  const response = await fetch(url)
+  const results = (await response.json()) as NominatimResult[]
+
+  const match = results.find(
+    (item) => item.geojson?.type === "Polygon" || item.geojson?.type === "MultiPolygon"
+  )
+
+  if (!match?.geojson?.type || !match.geojson.coordinates) {
     return null
   }
 
-  return {
-    minLng: bounds.getWest(),
-    minLat: bounds.getSouth(),
-    maxLng: bounds.getEast(),
-    maxLat: bounds.getNorth(),
+  if (match.geojson.type !== "Polygon" && match.geojson.type !== "MultiPolygon") {
+    return null
   }
+
+  const boundary: Feature<Polygon | MultiPolygon> = {
+    type: "Feature",
+    geometry: {
+      type: match.geojson.type,
+      coordinates: match.geojson.coordinates as Polygon["coordinates"] | MultiPolygon["coordinates"],
+    } as Polygon | MultiPolygon,
+    properties: {},
+  }
+
+  const label = match.display_name.split(",")[0]?.trim() || query
+
+  return { boundary, label }
 }
 
 export function MapViewport({ region }: MapViewportProps) {
@@ -138,6 +263,10 @@ export function MapViewport({ region }: MapViewportProps) {
 
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>(defaultCategories)
   const [queryBBox, setQueryBBox] = React.useState<BBox | null>(null)
+  const [highlightBoundary, setHighlightBoundary] = React.useState<
+    Feature<Polygon | MultiPolygon> | null
+  >(null)
+  const [pendingQueryBBox, setPendingQueryBBox] = React.useState<BBox | null>(null)
   const [activeAreaLabel, setActiveAreaLabel] = React.useState<string | null>(null)
   const [selection, setSelection] = React.useState<ClusterSelection>({
     type: "none",
@@ -145,15 +274,14 @@ export function MapViewport({ region }: MapViewportProps) {
     count: 0,
   })
   const [briefing, setBriefing] = React.useState(
-    "Search an area or click 'Search This Area' to load map intelligence."
+    "Search and select an area to highlight its true boundary and extract business intelligence."
   )
   const [isBriefingLoading, setIsBriefingLoading] = React.useState(false)
 
   const [searchQuery, setSearchQuery] = React.useState("")
-  const [searchResults, setSearchResults] = React.useState<GeocodeFeature[]>([])
+  const [searchResults, setSearchResults] = React.useState<MapboxSuggestion[]>([])
   const [searchLoading, setSearchLoading] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
-  const [pendingSearchAreaLabel, setPendingSearchAreaLabel] = React.useState<string | null>(null)
 
   const { data, loading, error, telemetry } = useSupabasePlaces(queryBBox, selectedCategories)
 
@@ -162,8 +290,8 @@ export function MapViewport({ region }: MapViewportProps) {
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
 
   const mapStyle = isDark
-    ? "mapbox://styles/mapbox/satellite-streets-v12"
-    : "mapbox://styles/mapbox/streets-v12"
+    ? "mapbox://styles/mapbox/dark-v11"
+    : "mapbox://styles/mapbox/light-v11"
 
   React.useEffect(() => {
     if (!mapboxToken) {
@@ -180,18 +308,25 @@ export function MapViewport({ region }: MapViewportProps) {
       setSearchLoading(true)
       try {
         const response = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(normalized)}.json?access_token=${mapboxToken}&autocomplete=true&limit=6`,
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(normalized)}.json?access_token=${mapboxToken}&autocomplete=true&limit=8&types=place,postcode,locality`,
           { signal: controller.signal }
         )
-        const payload = (await response.json()) as { features?: GeocodeFeature[] }
-        setSearchResults(payload.features ?? [])
+        const payload = (await response.json()) as {
+          features?: Array<{ id: string; place_name: string }>
+        }
+        setSearchResults(
+          (payload.features ?? []).map((feature) => ({
+            id: feature.id,
+            label: feature.place_name,
+          }))
+        )
         setSearchOpen(true)
       } catch {
         setSearchResults([])
       } finally {
         setSearchLoading(false)
       }
-    }, 320)
+    }, 280)
 
     return () => {
       controller.abort()
@@ -199,55 +334,112 @@ export function MapViewport({ region }: MapViewportProps) {
     }
   }, [searchQuery])
 
-  const runSearchForCurrentBounds = React.useCallback(
-    (label: string) => {
-      if (!mapRef.current) {
-        return
-      }
-
-      const bbox = getCurrentBounds(mapRef.current)
-      if (!bbox) {
-        return
-      }
-
-      setQueryBBox(bbox)
-      setActiveAreaLabel(label)
-      setSelection({
-        type: "none",
-        label: "No active selection",
-        count: 0,
-      })
-    },
-    []
-  )
-
-  const handleSearchAreaClick = React.useCallback(() => {
-    runSearchForCurrentBounds(activeAreaLabel ?? "Current map area")
-  }, [activeAreaLabel, runSearchForCurrentBounds])
-
-  const handleSearchResultSelect = React.useCallback((feature: GeocodeFeature) => {
-    setSearchQuery(feature.place_name)
-    setSearchOpen(false)
-    setPendingSearchAreaLabel(feature.place_name)
-
-    if (!mapRef.current) {
+  React.useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map) {
       return
     }
 
-    mapRef.current.flyTo({
-      center: feature.center,
-      zoom: 12,
-      duration: 1200,
-      essential: true,
-    })
-  }, [])
-
-  const handleMapMoveEnd = React.useCallback(() => {
-    if (pendingSearchAreaLabel) {
-      runSearchForCurrentBounds(pendingSearchAreaLabel)
-      setPendingSearchAreaLabel(null)
+    const clearBoundaryLayers = () => {
+      if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
+        map.removeLayer(BOUNDARY_LINE_LAYER_ID)
+      }
+      if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
+        map.removeLayer(BOUNDARY_FILL_LAYER_ID)
+      }
+      if (map.getSource(BOUNDARY_SOURCE_ID)) {
+        map.removeSource(BOUNDARY_SOURCE_ID)
+      }
     }
-  }, [pendingSearchAreaLabel, runSearchForCurrentBounds])
+
+    const drawBoundaryLayers = () => {
+      if (!highlightBoundary) {
+        clearBoundaryLayers()
+        return
+      }
+
+      const sourcePayload: FeatureCollection<Polygon | MultiPolygon> = {
+        type: "FeatureCollection",
+        features: [highlightBoundary],
+      }
+
+      const existing = map.getSource(BOUNDARY_SOURCE_ID) as GeoJSONSource | undefined
+      if (existing) {
+        existing.setData(sourcePayload)
+      } else {
+        map.addSource(BOUNDARY_SOURCE_ID, {
+          type: "geojson",
+          data: sourcePayload,
+        })
+      }
+
+      if (!map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
+        map.addLayer({
+          id: BOUNDARY_FILL_LAYER_ID,
+          type: "fill",
+          source: BOUNDARY_SOURCE_ID,
+          paint: {
+            "fill-color": "#ffbf00",
+            "fill-opacity": 0.1,
+          },
+        })
+      }
+
+      if (!map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
+        map.addLayer({
+          id: BOUNDARY_LINE_LAYER_ID,
+          type: "line",
+          source: BOUNDARY_SOURCE_ID,
+          paint: {
+            "line-color": "#ffbf00",
+            "line-width": 3,
+            "line-blur": 1,
+            "line-opacity": 1,
+          },
+        })
+      }
+
+      const bbox = boundaryToBBox(highlightBoundary)
+      map.fitBounds(
+        [
+          [bbox.minLng, bbox.minLat],
+          [bbox.maxLng, bbox.maxLat],
+        ],
+        {
+          padding: 54,
+          duration: 920,
+          maxZoom: 13.8,
+        }
+      )
+
+      if (pendingQueryBBox) {
+        map.once("idle", () => {
+          setQueryBBox(pendingQueryBBox)
+          setPendingQueryBBox(null)
+        })
+      }
+    }
+
+    if (map.isStyleLoaded()) {
+      applyMapStyleTweaks(map, isDark)
+      drawBoundaryLayers()
+    }
+
+    const handleStyleData = () => {
+      if (!map.isStyleLoaded()) {
+        return
+      }
+
+      applyMapStyleTweaks(map, isDark)
+      drawBoundaryLayers()
+    }
+
+    map.on("styledata", handleStyleData)
+
+    return () => {
+      map.off("styledata", handleStyleData)
+    }
+  }, [highlightBoundary, isDark, pendingQueryBBox])
 
   const generateBriefing = React.useCallback(
     async (pointCount: number) => {
@@ -283,6 +475,45 @@ export function MapViewport({ region }: MapViewportProps) {
     },
     [activeAreaLabel, region, selectedCategories]
   )
+
+  const handleSearchResultSelect = React.useCallback(async (feature: MapboxSuggestion) => {
+    setSearchLoading(true)
+
+    try {
+      const nominatimMatch = await fetchNominatimBoundary(feature.label)
+
+      if (!nominatimMatch) {
+        setBriefing("Unable to extract a true administrative boundary for this result. Try another area.")
+        setSearchLoading(false)
+        return
+      }
+
+      const bbox = boundaryToBBox(nominatimMatch.boundary)
+
+      setSearchQuery(feature.label)
+      setSearchOpen(false)
+      setSearchResults([])
+      setActiveAreaLabel(nominatimMatch.label)
+      setSelection({
+        type: "none",
+        label: "No active selection",
+        count: 0,
+      })
+      setBriefing(`Targeting Area: ${nominatimMatch.label}. Extracting local business intelligence...`)
+      setHighlightBoundary(nominatimMatch.boundary)
+      setPendingQueryBBox(bbox)
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
+
+  const handleSearchAreaClick = React.useCallback(() => {
+    if (!highlightBoundary) {
+      return
+    }
+
+    setQueryBBox(boundaryToBBox(highlightBoundary))
+  }, [highlightBoundary])
 
   const handleMapClick = React.useCallback(
     (event: MapMouseEvent) => {
@@ -347,6 +578,8 @@ export function MapViewport({ region }: MapViewportProps) {
 
   const clearSelection = React.useCallback(() => {
     setQueryBBox(null)
+    setPendingQueryBBox(null)
+    setHighlightBoundary(null)
     setActiveAreaLabel(null)
     setSearchResults([])
     setSearchOpen(false)
@@ -355,13 +588,17 @@ export function MapViewport({ region }: MapViewportProps) {
       label: "No active selection",
       count: 0,
     })
-    setBriefing("Search an area or click 'Search This Area' to load map intelligence.")
+    setBriefing("Search and select an area to highlight its true boundary and extract business intelligence.")
   }, [])
 
   const sourceData = React.useMemo(() => data as FeatureCollection<Point>, [data])
 
-  const desktopCardClassName =
+  const cardClassName =
     "border-border/50 bg-background/60 shadow-2xl shadow-primary/10 backdrop-blur-md"
+
+  const aiStatus = activeAreaLabel
+    ? `TARGETING: ${activeAreaLabel}`
+    : "READY: SELECT TARGET AREA"
 
   return (
     <main className="relative h-svh w-full overflow-hidden">
@@ -369,10 +606,9 @@ export function MapViewport({ region }: MapViewportProps) {
         <Map
           ref={mapRef}
           mapboxAccessToken={mapboxToken}
-          initialViewState={{ longitude: 133.7751, latitude: -25.2744, zoom: 3.8 }}
+          initialViewState={{ longitude: 151.2093, latitude: -33.8688, zoom: 9 }}
           mapStyle={mapStyle}
           style={{ width: "100%", height: "100%" }}
-          onMoveEnd={handleMapMoveEnd}
           interactiveLayerIds={["clusters", "unclustered-point"]}
           onClick={handleMapClick}
         >
@@ -396,74 +632,50 @@ export function MapViewport({ region }: MapViewportProps) {
 
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
 
-      <div className="absolute top-5 right-5 z-40">
+      <div className="absolute top-4 right-4 z-50 md:top-5 md:right-5">
         <ThemeToggle />
       </div>
 
-      <Card className="absolute top-5 left-1/2 z-40 w-[min(760px,calc(100%-2rem))] -translate-x-1/2 border-border/50 bg-background/60 shadow-2xl shadow-primary/10 backdrop-blur-md">
-        <CardContent className="p-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(event) => {
-                const value = event.target.value
-                setSearchQuery(value)
-                if (value.trim().length < 2) {
-                  setSearchResults([])
-                  setSearchOpen(false)
-                }
-              }}
-              onFocus={() => setSearchOpen(searchResults.length > 0)}
-              className="h-11 rounded-2xl pr-3 pl-9"
-              placeholder="Search suburb, postcode, or state (e.g. Parramatta, 2000, NSW)"
-            />
+      <div className="absolute top-4 left-1/2 z-50 w-[min(960px,calc(100%-0.75rem))] -translate-x-1/2 md:top-5 md:w-[min(920px,calc(100%-2rem))]">
+        <SearchBar
+          value={searchQuery}
+          onValueChange={(value) => {
+            setSearchQuery(value)
+            if (value.trim().length < 2) {
+              setSearchResults([])
+              setSearchOpen(false)
+            }
+          }}
+          results={searchResults}
+          loading={searchLoading}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          onSelectResult={(item) => {
+            void handleSearchResultSelect(item)
+          }}
+        />
+      </div>
 
-            {searchOpen ? (
-              <div className="absolute right-0 left-0 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg">
-                <Command>
-                  <CommandList>
-                    {searchLoading ? (
-                      <div className="space-y-2 p-3">
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-4/5" />
-                      </div>
-                    ) : null}
-                    <CommandEmpty>No places found.</CommandEmpty>
-                    <CommandGroup heading="Mapbox Results">
-                      {searchResults.map((feature) => (
-                        <CommandItem
-                          key={feature.id}
-                          value={feature.place_name}
-                          onSelect={() => handleSearchResultSelect(feature)}
-                        >
-                          {feature.place_name}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </div>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="absolute top-24 left-6 z-30 hidden w-[min(360px,calc(100%-3rem))] md:block">
+      <div className="absolute top-22 left-4 z-40 hidden w-[min(370px,calc(100%-2rem))] md:block lg:top-24 lg:left-6">
         <FilterPanel
           selectedCategories={selectedCategories}
           onChangeCategories={setSelectedCategories}
+          onSelectAllCategories={() => setSelectedCategories([...PLACE_CATEGORY_OPTIONS])}
+          onClearCategories={() => setSelectedCategories([])}
           onSearchArea={handleSearchAreaClick}
+          categoryColors={CATEGORY_COLORS}
+          searchEnabled={Boolean(highlightBoundary)}
           loading={loading}
           error={error}
         />
       </div>
 
-      <Card className={`absolute top-24 right-6 z-30 hidden w-[min(420px,calc(100%-3rem))] md:block ${desktopCardClassName}`}>
+      <Card className={`absolute top-22 right-4 z-40 hidden w-[min(430px,calc(100%-2rem))] md:block lg:top-24 lg:right-6 ${cardClassName}`}>
         <CardHeader>
           <CardTitle>AI Overview &amp; Description</CardTitle>
         </CardHeader>
         <CardContent>
+          <p className="mb-3 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
           {isBriefingLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-4 w-full" />
@@ -478,7 +690,7 @@ export function MapViewport({ region }: MapViewportProps) {
         </CardContent>
       </Card>
 
-      <Card className={`absolute right-6 bottom-6 z-30 hidden w-[min(360px,calc(100%-3rem))] md:block ${desktopCardClassName}`}>
+      <Card className={`absolute right-4 bottom-4 z-40 hidden w-[min(370px,calc(100%-2rem))] md:block lg:right-6 lg:bottom-6 ${cardClassName}`}>
         <CardHeader>
           <CardTitle>Current Selection</CardTitle>
         </CardHeader>
@@ -514,14 +726,12 @@ export function MapViewport({ region }: MapViewportProps) {
         </CardContent>
       </Card>
 
-      <div className="absolute bottom-6 left-6 z-30 hidden md:block">
-        <Button asChild variant="secondary" className="rounded-full">
-          <Link to="/">Back</Link>
-        </Button>
+      <div className="absolute bottom-4 left-4 z-40 lg:bottom-6 lg:left-6">
+        <UserProfileBox />
       </div>
 
-      <div className="absolute right-3 bottom-3 left-3 z-30 space-y-2 md:hidden">
-        <Card className={desktopCardClassName}>
+      <div className="absolute right-3 bottom-3 left-3 z-40 space-y-2 md:hidden">
+        <Card className={cardClassName}>
           <CardContent className="p-3">
             <details open>
               <summary className="cursor-pointer py-1 text-sm font-medium">Filter of Area</summary>
@@ -530,7 +740,11 @@ export function MapViewport({ region }: MapViewportProps) {
                   compact
                   selectedCategories={selectedCategories}
                   onChangeCategories={setSelectedCategories}
+                  onSelectAllCategories={() => setSelectedCategories([...PLACE_CATEGORY_OPTIONS])}
+                  onClearCategories={() => setSelectedCategories([])}
                   onSearchArea={handleSearchAreaClick}
+                  categoryColors={CATEGORY_COLORS}
+                  searchEnabled={Boolean(highlightBoundary)}
                   loading={loading}
                   error={error}
                 />
@@ -539,11 +753,12 @@ export function MapViewport({ region }: MapViewportProps) {
           </CardContent>
         </Card>
 
-        <Card className={desktopCardClassName}>
+        <Card className={cardClassName}>
           <CardContent className="p-3">
             <details>
               <summary className="cursor-pointer py-1 text-sm font-medium">AI Overview</summary>
               <div className="pt-3">
+                <p className="mb-2 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
                 {isBriefingLoading ? (
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-full" />
@@ -557,7 +772,7 @@ export function MapViewport({ region }: MapViewportProps) {
           </CardContent>
         </Card>
 
-        <Card className={desktopCardClassName}>
+        <Card className={cardClassName}>
           <CardContent className="space-y-3 p-3 text-sm">
             <details>
               <summary className="cursor-pointer py-1 text-sm font-medium">Current Selection</summary>
@@ -575,37 +790,11 @@ export function MapViewport({ region }: MapViewportProps) {
                 <Button asChild className="w-full rounded-2xl">
                   <Link to="/details">Deep Dive</Link>
                 </Button>
-                <Button asChild variant="secondary" className="w-full rounded-2xl">
-                  <Link to="/">Back</Link>
-                </Button>
               </div>
             </details>
           </CardContent>
         </Card>
       </div>
-
-      {searchOpen ? (
-        <button
-          type="button"
-          aria-label="Close search results"
-          className="absolute inset-0 z-20"
-          onClick={() => setSearchOpen(false)}
-        />
-      ) : null}
-
-      {searchOpen ? (
-        <button
-          type="button"
-          aria-label="Close"
-          className="absolute top-[26px] right-[max(1rem,calc(50%-370px))] z-50 rounded-full bg-background/60 p-1 backdrop-blur"
-          onClick={() => {
-            setSearchOpen(false)
-            setSearchResults([])
-          }}
-        >
-          <X className="size-4" />
-        </button>
-      ) : null}
     </main>
   )
 }

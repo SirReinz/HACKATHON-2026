@@ -1,0 +1,231 @@
+import * as React from "react"
+import { SignOutButton, useUser } from "@clerk/clerk-react"
+import { Settings2 } from "lucide-react"
+import { useForm } from "react-hook-form"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+
+type ProfileFormValues = {
+  fullName: string
+  mobileNumber: string
+  email: string
+  company: string
+  role: string
+}
+
+function initialsFromName(name: string) {
+  const parts = name
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (!parts.length) {
+    return "U"
+  }
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+}
+
+export function UserProfileBox() {
+  const { user } = useUser()
+  const [open, setOpen] = React.useState(false)
+
+  const fullName = user?.fullName ?? "User"
+  const email = user?.primaryEmailAddress?.emailAddress ?? "No email"
+
+  const form = useForm<ProfileFormValues>({
+    defaultValues: {
+      fullName,
+      mobileNumber: "",
+      email,
+      company: "",
+      role: "Owner",
+    },
+  })
+
+  React.useEffect(() => {
+    form.reset({
+      fullName,
+      mobileNumber: form.getValues("mobileNumber"),
+      email,
+      company: form.getValues("company"),
+      role: form.getValues("role") || "Owner",
+    })
+  }, [email, form, fullName])
+
+  const onSubmit = (values: ProfileFormValues) => {
+    console.log("Profile telemetry", values)
+    toast.success("Profile telemetry updated successfully.")
+    setOpen(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Card className="cursor-pointer border-border/50 bg-background/60 shadow-2xl backdrop-blur-md transition-colors hover:bg-background/75">
+          <CardContent className="flex items-center gap-2 px-3 py-1.5">
+            <div className="flex size-9 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold">
+              {user?.imageUrl ? (
+                <img
+                  src={user.imageUrl}
+                  alt={fullName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span>{initialsFromName(fullName)}</span>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{fullName}</p>
+              <p className="text-xs text-muted-foreground">Profile</p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="ml-auto rounded-full"
+              aria-label="Edit Profile"
+            >
+              <Settings2 className="size-3.5" />
+            </Button>
+          </CardContent>
+        </Card>
+      </DialogTrigger>
+
+      <DialogContent className="w-[98vw] max-w-[98vw] sm:max-w-[98vw] md:max-w-250 overflow-hidden border-border/50 bg-background/90 p-0 shadow-2xl backdrop-blur-md">
+        <div className="grid max-h-[88svh] grid-cols-1 gap-0 md:grid-cols-3">
+          <aside className="col-span-1 border-b border-border/50 bg-muted/30 p-6 md:border-r md:border-b-0">
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-4 flex size-20 items-center justify-center overflow-hidden rounded-full border bg-muted text-lg font-semibold">
+                {user?.imageUrl ? (
+                  <img
+                    src={user.imageUrl}
+                    alt={fullName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span>{initialsFromName(fullName)}</span>
+                )}
+              </div>
+              <p className="text-base font-semibold">{fullName}</p>
+              <p className="mt-1 text-sm text-muted-foreground break-all">{email}</p>
+            </div>
+          </aside>
+
+          <div className="col-span-2 min-h-0">
+            <DialogHeader className="border-b border-border/60 p-8 pb-5">
+              <DialogTitle>Profile Settings</DialogTitle>
+            </DialogHeader>
+
+            <ScrollArea className="h-[56svh] lg:h-[62svh]">
+              <div className="p-8 pt-6">
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <FormField
+                      control={form.control}
+                      name="fullName"
+                      rules={{ required: "Full Name is required" }}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Full Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Your full name" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input {...field} disabled readOnly />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="company"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Company/Enterprise</FormLabel>
+                          <FormControl>
+                            <Input placeholder="AXEL Enterprise" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="role"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Role</FormLabel>
+                          <FormControl>
+                            <select
+                              value={field.value}
+                              onChange={field.onChange}
+                              className="flex h-9 w-full rounded-2xl border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+                            >
+                              <option value="Owner">Owner</option>
+                              <option value="Marketer">Marketer</option>
+                              <option value="Developer">Developer</option>
+                            </select>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-5">
+                      <SignOutButton>
+                        <Button type="button" variant="outline">
+                          Sign Out
+                        </Button>
+                      </SignOutButton>
+                      <Button type="submit">Save Changes</Button>
+                    </div>
+                  </form>
+                </Form>
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

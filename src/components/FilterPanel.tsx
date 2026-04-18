@@ -12,12 +12,17 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 
 type FilterPanelProps = {
   selectedCategories: string[]
   onChangeCategories: (categories: string[]) => void
   onSearchArea: () => void
+  onClearCategories?: () => void
+  onSelectAllCategories?: () => void
+  categoryColors?: Record<string, string>
+  searchEnabled?: boolean
   loading?: boolean
   error?: string | null
   compact?: boolean
@@ -27,6 +32,10 @@ export function FilterPanel({
   selectedCategories,
   onChangeCategories,
   onSearchArea,
+  onClearCategories,
+  onSelectAllCategories,
+  categoryColors,
+  searchEnabled = true,
   loading = false,
   error,
   compact = false,
@@ -82,27 +91,64 @@ export function FilterPanel({
           </PopoverContent>
         </Popover>
 
-        <div className="flex flex-wrap gap-2">
-          {selectedCategories.length ? (
-            selectedCategories.map((category) => (
-              <Badge key={category} variant="secondary" className="gap-1.5 pr-1">
-                <span>{category}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${category}`}
-                  className="rounded-full p-0.5 hover:bg-foreground/10"
-                  onClick={() => removeCategory(category)}
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            ))
-          ) : (
-            <p className="text-xs text-muted-foreground">No categories selected.</p>
-          )}
+        <div className="rounded-xl border border-border/60 bg-background/30 p-2">
+          <ScrollArea className="h-20 pr-2">
+            <div className="flex flex-wrap gap-2">
+              {selectedCategories.length ? (
+                selectedCategories.map((category) => (
+                  <Badge
+                    key={category}
+                    variant="secondary"
+                    className="gap-1.5 border-transparent pr-1 text-white"
+                    style={{ backgroundColor: categoryColors?.[category] ?? "#64748b" }}
+                  >
+                    <span>{category}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${category}`}
+                      className="rounded-full p-0.5 hover:bg-foreground/10"
+                      onClick={() => removeCategory(category)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">No categories selected.</p>
+              )}
+            </div>
+          </ScrollArea>
         </div>
 
-        <Button onClick={onSearchArea} className="w-full rounded-2xl" disabled={loading}>
+        <div className="flex items-center gap-2">
+          {onSelectAllCategories ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-xl"
+              onClick={onSelectAllCategories}
+            >
+              Select All
+            </Button>
+          ) : null}
+
+          {selectedCategories.length && onClearCategories ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-xl"
+              onClick={onClearCategories}
+            >
+              Clear Categories
+            </Button>
+          ) : null}
+        </div>
+
+        <Button
+          onClick={onSearchArea}
+          className="w-full rounded-2xl"
+          disabled={loading || !searchEnabled}
+        >
           Search This Area
         </Button>
 
