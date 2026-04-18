@@ -393,7 +393,7 @@ export function ResultsCarouselPage() {
     const restoreInquiry = async () => {
       const { data, error } = await supabase
         .from("inquiries")
-        .select("business_type, target_audience, spending_bracket, results_data")
+        .select("business_type, spending_bracket, results_data")
         .eq("id", inquiryId)
         .eq("user_id", user.id)
         .maybeSingle()
@@ -409,7 +409,6 @@ export function ResultsCarouselPage() {
 
       setDraft({
         businessType: data.business_type,
-        targetAudience: data.target_audience,
         spendingBracket: data.spending_bracket,
       })
 
@@ -640,7 +639,6 @@ export function ResultsCarouselPage() {
 
       const aiPayload = {
         businessType: activeDraft.businessType,
-        targetAudience: activeDraft.targetAudience,
         spendingBracket: activeDraft.spendingBracket,
         suburbName: label,
         venueSummary,
@@ -852,7 +850,6 @@ export function ResultsCarouselPage() {
     const { error: insertError } = await supabase.from("inquiries").insert({
       user_id: user.id,
       business_type: draft.businessType,
-      target_audience: draft.targetAudience,
       spending_bracket: draft.spendingBracket,
       results_data: {
         suburbs: scoredResults.map((r) => suburbLabel(r)),

@@ -12,7 +12,6 @@ type RequestBody = {
   categories?: string[]
   activeArea?: string
   businessType?: string
-  targetAudience?: string
   spendingBracket?: string
   suburbName?: string
   venueSummary?: {
@@ -53,7 +52,6 @@ serve(async (req: Request) => {
     }
 
     const businessType = body.businessType || 'Retail Business'
-    const targetAudience = body.targetAudience || 'General Public'
     const spendingBracket = body.spendingBracket || '$$'
     const suburbName = body.suburbName || 'the selected area'
     const region = body.region || 'Australia'
@@ -94,7 +92,6 @@ serve(async (req: Request) => {
 
   The user is evaluating:
   - Business Type: ${businessType}
-  - Target Audience: ${targetAudience}
   - Spending Bracket: ${spendingBracket}
   - Suburb: ${suburbName}
 

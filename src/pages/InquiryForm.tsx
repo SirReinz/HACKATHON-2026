@@ -13,12 +13,10 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 
 type InquiryFormValues = {
   businessType: string
-  targetAudience: string
   spendingBracket: "$" | "$$" | "$$$"
 }
 
@@ -29,7 +27,6 @@ export function InquiryFormPage() {
   const form = useForm<InquiryFormValues>({
     defaultValues: {
       businessType: "",
-      targetAudience: "",
       spendingBracket: "$$",
     },
     mode: "onChange",
@@ -41,7 +38,7 @@ export function InquiryFormPage() {
   }
 
   return (
-    <main className="min-h-svh bg-gradient-to-br from-slate-100 via-slate-50 to-cyan-100 p-6 dark:from-slate-950 dark:via-slate-900 dark:to-cyan-950/50">
+    <main className="min-h-svh bg-linear-to-br from-slate-100 via-slate-50 to-cyan-100 p-6 dark:from-slate-950 dark:via-slate-900 dark:to-cyan-950/50">
       <div className="absolute top-6 right-6 z-20">
         <ThemeToggle />
       </div>
@@ -78,21 +75,6 @@ export function InquiryFormPage() {
                             </option>
                           ))}
                         </select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="targetAudience"
-                  rules={{ required: "Target audience is required" }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Target Audience</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Young professionals, families, students..." {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

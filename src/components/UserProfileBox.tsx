@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -135,9 +134,11 @@ export function UserProfileBox() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Card className="cursor-pointer border-border/50 bg-background/60 shadow-2xl backdrop-blur-md transition-colors hover:bg-background/75">
-          <CardContent className="flex items-center gap-2 px-3 py-1.5">
-            <div className="flex size-9 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold">
+        <button
+          type="button"
+          className="flex w-full cursor-pointer items-center gap-3 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-foreground transition-colors hover:bg-accent/60 dark:border-slate-700/50 dark:bg-slate-800/50 dark:text-slate-100 dark:hover:bg-slate-800/70"
+        >
+            <div className="flex size-8 items-center justify-center overflow-hidden rounded-full border border-border bg-muted text-xs font-semibold text-foreground dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
               {user?.imageUrl ? (
                 <img
                   src={user.imageUrl}
@@ -158,13 +159,12 @@ export function UserProfileBox() {
               type="button"
               variant="ghost"
               size="icon-xs"
-              className="ml-auto rounded-full"
+              className="ml-auto rounded-full text-muted-foreground hover:bg-accent hover:text-foreground dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
               aria-label="Edit Profile"
             >
               <Settings2 className="size-3.5" />
             </Button>
-          </CardContent>
-        </Card>
+        </button>
       </DialogTrigger>
 
       <DialogContent className="w-[98vw] max-w-[98vw] sm:max-w-[98vw] md:max-w-250 overflow-hidden border-border/50 bg-background/90 p-0 shadow-2xl backdrop-blur-md">

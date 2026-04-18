@@ -2,7 +2,6 @@ import * as React from "react"
 
 export type InquiryDraft = {
   businessType: string
-  targetAudience: string
   spendingBracket: "$" | "$$" | "$$$"
 }
 

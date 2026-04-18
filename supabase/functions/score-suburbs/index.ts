@@ -14,7 +14,6 @@ type BriefingRequest = {
   pointCount?: number
   categories?: string[]
   businessType?: string
-  targetAudience?: string
   spendingBracket?: string
 }
 
@@ -55,7 +54,6 @@ function asStringArray(value: unknown): string[] {
 function buildFallbackBriefing(payload: BriefingRequest): string {
   const suburb = asString(payload.suburb_name) ?? asString(payload.activeArea) ?? "Selected Area"
   const businessType = asString(payload.businessType) ?? "business"
-  const targetAudience = asString(payload.targetAudience) ?? "local customers"
   const spendingBracket = asString(payload.spendingBracket) ?? "$$"
   const region = asString(payload.region) ?? "the region"
   const pointCount = asNumber(payload.pointCount) ?? 0
@@ -72,7 +70,7 @@ function buildFallbackBriefing(payload: BriefingRequest): string {
 
   return [
     `AXEL briefing for ${suburb} (${region})`,
-    `Business model: ${businessType}. Target audience: ${targetAudience}. Spending profile: ${spendingBracket}.`,
+    `Business model: ${businessType}. Spending profile: ${spendingBracket}.`,
     densityLine,
     categoryLine,
     "Recommendation: run a pilot activation for 4-6 weeks, measure conversion by hour and daypart, then compare CAC and repeat-rate before committing to a long lease.",
@@ -88,7 +86,6 @@ async function generateWithGemini(payload: BriefingRequest): Promise<string | nu
 
   const suburb = asString(payload.suburb_name) ?? asString(payload.activeArea) ?? "Selected Area"
   const businessType = asString(payload.businessType) ?? "business"
-  const targetAudience = asString(payload.targetAudience) ?? "local customers"
   const spendingBracket = asString(payload.spendingBracket) ?? "$$"
   const region = asString(payload.region) ?? "the region"
   const pointCount = asNumber(payload.pointCount) ?? 0
@@ -100,7 +97,6 @@ async function generateWithGemini(payload: BriefingRequest): Promise<string | nu
     `Suburb: ${suburb}`,
     `Region: ${region}`,
     `Business type: ${businessType}`,
-    `Target audience: ${targetAudience}`,
     `Spending bracket: ${spendingBracket}`,
     `Observed venue count: ${pointCount}`,
     `Categories filter: ${categories.length ? categories.join(", ") : "none"}`,
