@@ -35,9 +35,16 @@ type NominatimResult = {
   }
 }
 
+// ── UPDATED: ResultSuburb now carries scoring metadata ─────────────────────
 type ResultSuburb = {
   name: string
   fallbackCenter: [number, number]
+  // Scoring fields (populated from edge function)
+  finalScore?: number
+  competitorsPerThousand?: number
+  seifaDecile?: number
+  population?: number
+  competitorCount?: number
 }
 
 type VenueSummary = {
@@ -57,10 +64,14 @@ type SummaryFeatureProperties = {
   level1_category?: string
 }
 
-const demoResults: ResultSuburb[] = [
-  { name: "Redfern", fallbackCenter: [151.2047, -33.8925] },
-  { name: "Darlington", fallbackCenter: [151.1986, -33.8912] },
-  { name: "Barangaroo", fallbackCenter: [151.2011, -33.8605] },
+// ── REMOVED: hardcoded demoResults ────────────────────────────────────────
+// Previously: const demoResults: ResultSuburb[] = [ Redfern, Darlington, Barangaroo ]
+// Now results come from the score-suburbs edge function
+
+const FALLBACK_RESULTS: ResultSuburb[] = [
+  { name: "Surry Hills", fallbackCenter: [151.2093, -33.8854] },
+  { name: "Newtown", fallbackCenter: [151.1786, -33.8978] },
+  { name: "Parramatta", fallbackCenter: [151.0054, -33.8150] },
 ]
 
 const clusterLayer: LayerProps = {
@@ -137,7 +148,7 @@ function boundaryPaint(isDark: boolean) {
 }
 
 async function fetchNominatimBoundary(query: string): Promise<Feature<Polygon | MultiPolygon> | null> {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&addressdetails=1&limit=5&email=your_email@example.com`
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ", NSW, Australia")}&format=json&polygon_geojson=1&addressdetails=1&limit=5&email=your_email@example.com`
   const response = await fetch(url)
   const results = (await response.json()) as NominatimResult[]
 
@@ -178,47 +189,30 @@ function aggregateVenueSummary(
       summary.byCategory[category] = (summary.byCategory[category] ?? 0) + 1
       return summary
     },
-    {
-      total: 0,
-      byCategory: {},
-    }
+    { total: 0, byCategory: {} }
   )
 }
 
 function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value
-  }
-
+  if (typeof value === "number" && Number.isFinite(value)) return value
   if (typeof value === "string") {
     const parsed = Number(value)
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
+    if (Number.isFinite(parsed)) return parsed
   }
-
   return null
 }
 
 function extractCoordinates(row: PlaceRow): [number, number] | null {
   const directLng = toNumber(row.longitude ?? row.lng)
   const directLat = toNumber(row.latitude ?? row.lat)
-
-  if (directLng !== null && directLat !== null) {
-    return [directLng, directLat]
-  }
+  if (directLng !== null && directLat !== null) return [directLng, directLat]
 
   const geom = row.geom
-  if (!geom || !Array.isArray(geom.coordinates) || geom.coordinates.length < 2) {
-    return null
-  }
+  if (!geom || !Array.isArray(geom.coordinates) || geom.coordinates.length < 2) return null
 
   const geomLng = toNumber(geom.coordinates[0])
   const geomLat = toNumber(geom.coordinates[1])
-
-  if (geomLng === null || geomLat === null) {
-    return null
-  }
+  if (geomLng === null || geomLat === null) return null
 
   return [geomLng, geomLat]
 }
@@ -228,16 +222,11 @@ function toFeatureCollection(rows: PlaceRow[]): FeatureCollection<Point, PlacePr
 
   rows.forEach((row, index) => {
     const coordinates = extractCoordinates(row)
-    if (!coordinates) {
-      return
-    }
+    if (!coordinates) return
 
     features.push({
       type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates,
-      },
+      geometry: { type: "Point", coordinates },
       properties: {
         id: String(row.id ?? index),
         name: row.name ?? row.venue_name ?? "Unknown Venue",
@@ -246,10 +235,7 @@ function toFeatureCollection(rows: PlaceRow[]): FeatureCollection<Point, PlacePr
     })
   })
 
-  return {
-    type: "FeatureCollection",
-    features,
-  }
+  return { type: "FeatureCollection", features }
 }
 
 function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>) {
@@ -266,24 +252,18 @@ function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>) {
   }
 
   if (boundary.geometry.type === "Polygon") {
-    boundary.geometry.coordinates.forEach((ring) => {
-      ring.forEach(([lng, lat]) => visit(lng, lat))
-    })
+    boundary.geometry.coordinates.forEach((ring) => ring.forEach(([lng, lat]) => visit(lng, lat)))
   } else {
-    boundary.geometry.coordinates.forEach((polygon) => {
-      polygon.forEach((ring) => {
-        ring.forEach(([lng, lat]) => visit(lng, lat))
-      })
-    })
+    boundary.geometry.coordinates.forEach((polygon) =>
+      polygon.forEach((ring) => ring.forEach(([lng, lat]) => visit(lng, lat)))
+    )
   }
 
   return { minLng, minLat, maxLng, maxLat }
 }
 
 function apply3DBuildings(map: MapboxMap, isDark: boolean) {
-  if (map.getLayer(BUILDINGS_LAYER_ID)) {
-    return
-  }
+  if (map.getLayer(BUILDINGS_LAYER_ID)) return
 
   const labelLayer = map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id
 
@@ -329,13 +309,18 @@ export function ResultsCarouselPage() {
   const [saveLoading, setSaveLoading] = React.useState(false)
   const [countsBySuburb, setCountsBySuburb] = React.useState<Record<string, number>>({})
   const [fetchMessage, setFetchMessage] = React.useState<string | null>(null)
+
+  // ── NEW: scoring state ──────────────────────────────────────────────────
+  const [scoredResults, setScoredResults] = React.useState<ResultSuburb[]>(FALLBACK_RESULTS)
+  const [scoringLoading, setScoringLoading] = React.useState(false)
+
   const prevCountRef = React.useRef(0)
   const activeRunIdRef = React.useRef(0)
   const rotationRequestRef = React.useRef<number | null>(null)
   const rotationMoveEndHandlerRef = React.useRef<(() => void) | null>(null)
   const exitToDashboardRef = React.useRef(false)
 
-  const activeSuburb = demoResults[activeIndex]
+  const activeSuburb = scoredResults[activeIndex]
 
   const telemetry = React.useMemo(() => {
     return venueData.features.reduce(
@@ -345,10 +330,7 @@ export function ResultsCarouselPage() {
         acc.byCategory[category] = (acc.byCategory[category] ?? 0) + 1
         return acc
       },
-      {
-        total: 0,
-        byCategory: {} as Record<string, number>,
-      }
+      { total: 0, byCategory: {} as Record<string, number> }
     )
   }, [venueData])
 
@@ -356,31 +338,50 @@ export function ResultsCarouselPage() {
     theme === "dark" ||
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
 
-  const mapStyle = isDark
-    ? "mapbox://styles/mapbox/dark-v11"
-    : "mapbox://styles/mapbox/light-v11"
+  const mapStyle = isDark ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/light-v11"
+
+  // ── NEW: fetch scored results from edge function ────────────────────────
+  React.useEffect(() => {
+    if (!draft) return
+
+    setScoringLoading(true)
+    setFetchMessage("Finding best suburbs for your business...")
+
+    supabase.functions
+      .invoke("score-suburbs", {
+        body: {
+          businessType: draft.businessType,
+          spendingBracket: draft.spendingBracket,
+        },
+      })
+      .then(({ data, error }) => {
+        if (error || !data?.results?.length) {
+          console.error("Scoring error:", error)
+          toast.error("Could not score suburbs — showing default results.")
+          setScoredResults(FALLBACK_RESULTS)
+        } else {
+          setScoredResults(data.results as ResultSuburb[])
+          setActiveIndex(0)
+        }
+        setScoringLoading(false)
+        setFetchMessage(null)
+      })
+  }, [draft])
 
   React.useEffect(() => {
     if (!draft) {
-      if (exitToDashboardRef.current) {
-        return
-      }
+      if (exitToDashboardRef.current) return
       navigate("/inquiry/new", { replace: true })
       return
     }
-
     exitToDashboardRef.current = false
   }, [draft, navigate])
 
   React.useEffect(() => {
     const currentCount = telemetry.total
-
     if (currentCount > prevCountRef.current) {
-      console.log(
-        `📈 TELEMETRY: Raw Venue Count increased from ${prevCountRef.current} to ${currentCount}`
-      )
+      console.log(`📈 TELEMETRY: Raw Venue Count increased from ${prevCountRef.current} to ${currentCount}`)
     }
-
     prevCountRef.current = currentCount
   }, [telemetry.total])
 
@@ -389,7 +390,6 @@ export function ResultsCarouselPage() {
       cancelAnimationFrame(rotationRequestRef.current)
       rotationRequestRef.current = null
     }
-
     const map = mapRef.current?.getMap()
     if (map && rotationMoveEndHandlerRef.current) {
       map.off("moveend", rotationMoveEndHandlerRef.current)
@@ -399,9 +399,7 @@ export function ResultsCarouselPage() {
 
   const startCameraRotation = React.useCallback(() => {
     const map = mapRef.current?.getMap()
-    if (!map || !map.getStyle()) {
-      return
-    }
+    if (!map || !map.getStyle()) return
 
     if (rotationRequestRef.current !== null) {
       cancelAnimationFrame(rotationRequestRef.current)
@@ -414,9 +412,7 @@ export function ResultsCarouselPage() {
         rotationRequestRef.current = null
         return
       }
-
-      const curr = liveMap.getBearing()
-      liveMap.setBearing(curr + 0.03)
+      liveMap.setBearing(liveMap.getBearing() + 0.03)
       rotationRequestRef.current = requestAnimationFrame(rotateCamera)
     }
 
@@ -433,9 +429,7 @@ export function ResultsCarouselPage() {
       setBriefingLoading(false)
 
       const foundBoundary = await fetchNominatimBoundary(suburb.name)
-      if (shouldCancel()) {
-        return
-      }
+      if (shouldCancel()) return
 
       if (!foundBoundary) {
         setBoundary(null)
@@ -457,7 +451,6 @@ export function ResultsCarouselPage() {
             map.off("moveend", rotationMoveEndHandlerRef.current)
             rotationMoveEndHandlerRef.current = null
           }
-
           startCameraRotation()
         }
 
@@ -477,15 +470,10 @@ export function ResultsCarouselPage() {
       const { rows: resultRows, error: fetchError } = await fetchPlacesInPolygonPaginated(
         foundBoundary.geometry,
         null,
-        {
-          pageSize: 1000,
-          maxPages: 20,
-        }
+        { pageSize: 1000, maxPages: 20 }
       )
 
-      if (shouldCancel()) {
-        return
-      }
+      if (shouldCancel()) return
 
       if (fetchError) {
         setVenueData({ type: "FeatureCollection", features: [] })
@@ -504,7 +492,9 @@ export function ResultsCarouselPage() {
       const nextVenueData = toFeatureCollection(resultRows)
       setVenueData(nextVenueData)
 
-      const venueSummary = aggregateVenueSummary(nextVenueData as FeatureCollection<Point, SummaryFeatureProperties>)
+      const venueSummary = aggregateVenueSummary(
+        nextVenueData as FeatureCollection<Point, SummaryFeatureProperties>
+      )
       const requestKey = `${suburb.name}:${nextVenueData.features.length}:${JSON.stringify(venueSummary.byCategory)}`
 
       if (lastSmartResponderRequestKey === requestKey) {
@@ -516,24 +506,42 @@ export function ResultsCarouselPage() {
       setFetchMessage("AI is analyzing area...")
       setBriefingLoading(true)
 
-      const { data: response, error: invokeError } = await supabase.functions.invoke("smart-responder", {
-        body: {
-          businessType: activeDraft.businessType,
-          targetAudience: activeDraft.targetAudience,
-          spendingBracket: activeDraft.spendingBracket,
-          suburbName: suburb.name,
-          venueData: resultRows,
-          venueSummary,
-        },
-      })
+      const venueSample = resultRows.slice(0, 50).map((row) => ({
+        id: String(row.id ?? ""),
+        name: row.name ?? row.venue_name ?? "Unknown Venue",
+        category: row.level1_category_name ?? "Uncategorized",
+      }))
 
-      if (shouldCancel()) {
-        return
+      const aiPayload = {
+        businessType: activeDraft.businessType,
+        targetAudience: activeDraft.targetAudience,
+        spendingBracket: activeDraft.spendingBracket,
+        suburbName: suburb.name,
+        venueSummary,
+        venueSample,
+        scoringContext: {
+          finalScore: suburb.finalScore,
+          competitorsPerThousand: suburb.competitorsPerThousand,
+          seifaDecile: suburb.seifaDecile,
+          population: suburb.population,
+        },
       }
 
+      console.info("smart-responder payload size (bytes)", JSON.stringify(aiPayload).length)
+
+      const { data: response, error: invokeError } = await supabase.functions.invoke("smart-responder", {
+        body: aiPayload,
+      })
+
+      if (shouldCancel()) return
+
       if (invokeError) {
+        const errorMsg =
+          typeof invokeError === "object" && invokeError !== null && "message" in invokeError
+            ? String(invokeError.message)
+            : String(invokeError)
         console.error("AI Function Error Details:", invokeError)
-        setAiSummary(`Unable to generate briefing: ${invokeError.message}`)
+        setAiSummary(`Unable to generate briefing: ${errorMsg}`)
         setBriefingLoading(false)
         setFetchMessage(null)
         return
@@ -542,10 +550,7 @@ export function ResultsCarouselPage() {
       const result =
         typeof response === "string"
           ? response
-          : response?.briefing ??
-            response?.summary ??
-            response?.text ??
-            JSON.stringify(response, null, 2)
+          : response?.briefing ?? response?.summary ?? response?.text ?? JSON.stringify(response, null, 2)
 
       setAiSummary(result)
       setBriefingLoading(false)
@@ -555,9 +560,7 @@ export function ResultsCarouselPage() {
   )
 
   React.useEffect(() => {
-    if (!draft) {
-      return
-    }
+    if (!draft || scoringLoading) return
 
     const activeDraft = draft
     let cancelled = false
@@ -570,41 +573,29 @@ export function ResultsCarouselPage() {
       cancelled = true
       stopCameraRotation()
     }
-  }, [activeSuburb, draft, fetchData, stopCameraRotation])
+  }, [activeSuburb, draft, fetchData, stopCameraRotation, scoringLoading])
 
   React.useEffect(() => {
-    return () => {
-      stopCameraRotation()
-    }
+    return () => { stopCameraRotation() }
   }, [stopCameraRotation])
 
   React.useEffect(() => {
     const map = mapRef.current?.getMap()
-    if (!map || !mapLoaded) {
-      return
-    }
+    if (!map || !mapLoaded) return
 
     const ensure3DBuildings = () => {
-      if (!map.getStyle()) {
-        return
-      }
-
+      if (!map.getStyle()) return
       apply3DBuildings(map, isDark)
     }
 
     ensure3DBuildings()
     map.on("style.load", ensure3DBuildings)
-
-    return () => {
-      map.off("style.load", ensure3DBuildings)
-    }
+    return () => { map.off("style.load", ensure3DBuildings) }
   }, [isDark, mapLoaded])
 
   React.useEffect(() => {
     const map = mapRef.current?.getMap()
-    if (!map || !mapLoaded || !map.getStyle()) {
-      return
-    }
+    if (!map || !mapLoaded || !map.getStyle()) return
 
     if (map.getLayer(PLACES_CIRCLE_LAYER_ID)) {
       map.setPaintProperty(PLACES_CIRCLE_LAYER_ID, "circle-color", venueCircleColorExpression as any)
@@ -619,17 +610,13 @@ export function ResultsCarouselPage() {
       }
 
       const existing = map.getSource(BOUNDARY_SOURCE_ID) as GeoJSONSource | undefined
-      if (existing) {
-        existing.setData(payload)
-      }
+      if (existing) existing.setData(payload)
 
       const paints = boundaryPaint(isDark)
-
       if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
         map.setPaintProperty(BOUNDARY_FILL_LAYER_ID, "fill-color", paints.fill["fill-color"])
         map.setPaintProperty(BOUNDARY_FILL_LAYER_ID, "fill-opacity", paints.fill["fill-opacity"])
       }
-
       if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
         map.setPaintProperty(BOUNDARY_LINE_LAYER_ID, "line-color", paints.line["line-color"])
         map.setPaintProperty(BOUNDARY_LINE_LAYER_ID, "line-width", paints.line["line-width"])
@@ -640,25 +627,14 @@ export function ResultsCarouselPage() {
   }, [boundary, isDark, mapLoaded, venueData])
 
   React.useEffect(() => {
-    if (!boundary) {
-      return
-    }
-
+    if (!boundary) return
     const map = mapRef.current?.getMap()
-    if (!map || !mapLoaded) {
-      return
-    }
+    if (!map || !mapLoaded) return
 
     const clearBoundary = () => {
-      if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
-        map.removeLayer(BOUNDARY_LINE_LAYER_ID)
-      }
-      if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
-        map.removeLayer(BOUNDARY_FILL_LAYER_ID)
-      }
-      if (map.getSource(BOUNDARY_SOURCE_ID)) {
-        map.removeSource(BOUNDARY_SOURCE_ID)
-      }
+      if (map.getLayer(BOUNDARY_LINE_LAYER_ID)) map.removeLayer(BOUNDARY_LINE_LAYER_ID)
+      if (map.getLayer(BOUNDARY_FILL_LAYER_ID)) map.removeLayer(BOUNDARY_FILL_LAYER_ID)
+      if (map.getSource(BOUNDARY_SOURCE_ID)) map.removeSource(BOUNDARY_SOURCE_ID)
     }
 
     const drawBoundary = () => {
@@ -671,38 +647,20 @@ export function ResultsCarouselPage() {
       if (existing) {
         existing.setData(payload)
       } else {
-        map.addSource(BOUNDARY_SOURCE_ID, {
-          type: "geojson",
-          data: payload,
-        })
+        map.addSource(BOUNDARY_SOURCE_ID, { type: "geojson", data: payload })
       }
 
+      const paints = boundaryPaint(isDark)
       if (!map.getLayer(BOUNDARY_FILL_LAYER_ID)) {
-        const paints = boundaryPaint(isDark)
-        map.addLayer({
-          id: BOUNDARY_FILL_LAYER_ID,
-          type: "fill",
-          source: BOUNDARY_SOURCE_ID,
-          paint: paints.fill,
-        })
+        map.addLayer({ id: BOUNDARY_FILL_LAYER_ID, type: "fill", source: BOUNDARY_SOURCE_ID, paint: paints.fill })
       }
-
       if (!map.getLayer(BOUNDARY_LINE_LAYER_ID)) {
-        const paints = boundaryPaint(isDark)
-        map.addLayer({
-          id: BOUNDARY_LINE_LAYER_ID,
-          type: "line",
-          source: BOUNDARY_SOURCE_ID,
-          paint: paints.line,
-        })
+        map.addLayer({ id: BOUNDARY_LINE_LAYER_ID, type: "line", source: BOUNDARY_SOURCE_ID, paint: paints.line })
       }
     }
 
     const applyVisualLayers = () => {
-      if (!map.getStyle()) {
-        return
-      }
-
+      if (!map.getStyle()) return
       apply3DBuildings(map, isDark)
       drawBoundary()
     }
@@ -725,8 +683,8 @@ export function ResultsCarouselPage() {
     }))
   }, [activeSuburb.name, telemetry.total])
 
-  const goNext = () => setActiveIndex((value) => (value + 1) % demoResults.length)
-  const goPrevious = () => setActiveIndex((value) => (value - 1 + demoResults.length) % demoResults.length)
+  const goNext = () => setActiveIndex((v) => (v + 1) % scoredResults.length)
+  const goPrevious = () => setActiveIndex((v) => (v - 1 + scoredResults.length) % scoredResults.length)
   const jumpToSuburb = (index: number) => setActiveIndex(index)
 
   const handleExitWithoutSaving = () => {
@@ -737,9 +695,7 @@ export function ResultsCarouselPage() {
   }
 
   const handleSaveInquiry = async () => {
-    if (!draft || !user) {
-      return
-    }
+    if (!draft || !user) return
 
     setSaveLoading(true)
 
@@ -749,10 +705,18 @@ export function ResultsCarouselPage() {
       target_audience: draft.targetAudience,
       spending_bracket: draft.spendingBracket,
       results_data: {
-        suburbs: demoResults.map((result) => result.name),
+        suburbs: scoredResults.map((r) => r.name),
         active_suburb: activeSuburb.name,
         venue_counts_by_suburb: countsBySuburb,
         telemetry_by_category: telemetry.byCategory,
+        // ── NEW: save scoring metadata too ──
+        scoring: scoredResults.map((r) => ({
+          name: r.name,
+          finalScore: r.finalScore,
+          seifaDecile: r.seifaDecile,
+          population: r.population,
+          competitorsPerThousand: r.competitorsPerThousand,
+        })),
       },
     })
 
@@ -777,8 +741,8 @@ export function ResultsCarouselPage() {
           onLoad={() => setMapLoaded(true)}
           mapboxAccessToken={mapboxToken}
           initialViewState={{
-            longitude: demoResults[0].fallbackCenter[0],
-            latitude: demoResults[0].fallbackCenter[1],
+            longitude: activeSuburb.fallbackCenter[0],
+            latitude: activeSuburb.fallbackCenter[1],
             zoom: 14.7,
             pitch: 60,
             bearing: -20,
@@ -805,17 +769,19 @@ export function ResultsCarouselPage() {
         <div className="h-full w-full bg-muted" />
       )}
 
+      {/* Top bar */}
       <div className="absolute top-4 left-1/2 z-50 w-[min(1100px,calc(100%-1.5rem))] -translate-x-1/2 rounded-2xl border border-white/20 bg-background/55 px-4 py-3 shadow-2xl backdrop-blur-xl md:px-6">
         <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[220px_1fr_auto] md:gap-4">
           <div className="min-w-0">
-            <p className="text-xs tracking-wide text-muted-foreground uppercase">3D Results Carousel</p>
+            <p className="text-xs tracking-wide text-muted-foreground uppercase">
+              {scoringLoading ? "Scoring suburbs..." : "3D Results Carousel"}
+            </p>
             <h1 className="text-lg font-semibold">{activeSuburb.name}</h1>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/20 bg-background/40 px-3 py-2">
-            {demoResults.map((suburb, index) => {
+            {scoredResults.map((suburb, index) => {
               const isActive = index === activeIndex
-
               return (
                 <React.Fragment key={suburb.name}>
                   <button
@@ -827,12 +793,12 @@ export function ResultsCarouselPage() {
                         : "bg-background/40 text-muted-foreground hover:bg-background/60 hover:text-foreground"
                     }`}
                   >
-                    {suburb.name}
+                    #{index + 1} {suburb.name}
                     {isActive ? (
                       <span className="pointer-events-none absolute right-2 bottom-0 left-2 h-0.5 rounded-full bg-primary shadow-[0_0_10px_rgba(56,189,248,0.85)]" />
                     ) : null}
                   </button>
-                  {index < demoResults.length - 1 ? (
+                  {index < scoredResults.length - 1 ? (
                     <ChevronRight className="size-4 text-muted-foreground/70" />
                   ) : null}
                 </React.Fragment>
@@ -842,12 +808,7 @@ export function ResultsCarouselPage() {
 
           <div className="flex justify-self-end gap-2">
             <ThemeToggle />
-            <Button
-              variant="secondary"
-              className="rounded-2xl"
-              onClick={handleExitWithoutSaving}
-              disabled={saveLoading}
-            >
+            <Button variant="secondary" className="rounded-2xl" onClick={handleExitWithoutSaving} disabled={saveLoading}>
               Exit Without Saving
             </Button>
             <Button className="rounded-2xl" onClick={handleSaveInquiry} disabled={saveLoading || !draft}>
@@ -857,43 +818,48 @@ export function ResultsCarouselPage() {
         </div>
       </div>
 
+      {/* Navigation */}
       <div className="absolute bottom-6 left-1/2 z-70 -translate-x-1/2">
         <div className="flex items-center gap-3 rounded-full border border-white/25 bg-background/65 p-2 shadow-2xl backdrop-blur-xl">
-          <Button
-            size="icon"
-            variant="outline"
-            className="rounded-full border-white/30 bg-background/70 shadow"
-            onClick={goPrevious}
-          >
+          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goPrevious}>
             <ChevronLeft className="size-5" />
           </Button>
           <p className="px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Navigate</p>
-          <Button
-            size="icon"
-            variant="outline"
-            className="rounded-full border-white/30 bg-background/70 shadow"
-            onClick={goNext}
-          >
+          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goNext}>
             <ChevronRight className="size-5" />
           </Button>
         </div>
       </div>
 
+      {/* Intelligence briefing panel */}
       <Card className="absolute top-24 right-4 bottom-4 z-50 w-[min(430px,calc(100%-2rem))] border-border/50 bg-background/65 shadow-2xl backdrop-blur-xl md:right-6">
         <CardHeader>
           <CardTitle>Intelligence Briefing</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Suburb stats card */}
           <div className="space-y-1 rounded-2xl border border-border/60 bg-background/35 p-3 text-sm">
-            <p>
-              <span className="text-muted-foreground">Suburb:</span> {activeSuburb.name}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Raw Venue Count:</span> {telemetry.total}
-            </p>
+            <p><span className="text-muted-foreground">Suburb:</span> {activeSuburb.name}</p>
+            <p><span className="text-muted-foreground">Raw Venue Count:</span> {telemetry.total}</p>
+
+            {/* ── NEW: scoring stats ── */}
+            {activeSuburb.population && (
+              <p><span className="text-muted-foreground">Population:</span> {activeSuburb.population.toLocaleString()}</p>
+            )}
+            {activeSuburb.seifaDecile && (
+              <p><span className="text-muted-foreground">Wealth Decile:</span> {activeSuburb.seifaDecile} / 10</p>
+            )}
+            {activeSuburb.competitorsPerThousand !== undefined && (
+              <p><span className="text-muted-foreground">Competitors / 1k residents:</span> {activeSuburb.competitorsPerThousand}</p>
+            )}
+            {activeSuburb.finalScore !== undefined && (
+              <p><span className="text-muted-foreground">Axel Score:</span> {(activeSuburb.finalScore * 100).toFixed(0)} / 100</p>
+            )}
+
             {fetchMessage ? <p className="text-muted-foreground">{fetchMessage}</p> : null}
           </div>
 
+          {/* AI summary */}
           <div className="rounded-2xl border border-border/60 bg-background/35 p-3">
             <p className="mb-2 text-xs tracking-wide text-primary uppercase">AI Summary</p>
             {briefingLoading ? (

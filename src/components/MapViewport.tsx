@@ -448,24 +448,43 @@ export function MapViewport({ region }: MapViewportProps) {
   const generateBriefing = React.useCallback(
     async (pointCount: number) => {
       setIsBriefingLoading(true)
-      const { data: response, error: invokeError } = await supabase.functions.invoke(
-        "generate-briefing",
-        { body: { region, pointCount, categories: selectedCategories, activeArea: activeAreaLabel } },
-      )
+      try {
+        const { data: response, error: invokeError } = await supabase.functions.invoke(
+          "smart-responder",
+          {
+            body: {
+              region,
+              pointCount,
+              categories: selectedCategories,
+              activeArea: activeAreaLabel,
+              venueSummary: telemetry,
+            },
+          },
+        )
 
-      if (invokeError) {
-        setBriefing(`Unable to generate briefing: ${invokeError.message}`)
+        if (invokeError) {
+          const errorMsg = typeof invokeError === 'object' && invokeError !== null && 'message' in invokeError 
+            ? String(invokeError.message)
+            : String(invokeError)
+          console.error('Generate Briefing Error:', errorMsg)
+          setBriefing(`AI Briefing temporarily unavailable: ${errorMsg}. Make sure GEMINI_API_KEY is configured in Supabase Edge Function secrets.`)
+          setIsBriefingLoading(false)
+          return
+        }
+
+        const result =
+          typeof response === "string"
+            ? response
+            : response?.briefing ?? response?.summary ?? response?.text ?? JSON.stringify(response, null, 2)
+
+        setBriefing(result)
         setIsBriefingLoading(false)
-        return
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        console.error("Unexpected error during briefing generation:", errorMsg)
+        setBriefing(`Error: ${errorMsg}`)
+        setIsBriefingLoading(false)
       }
-
-      const result =
-        typeof response === "string"
-          ? response
-          : response?.briefing ?? response?.summary ?? response?.text ?? JSON.stringify(response, null, 2)
-
-      setBriefing(result)
-      setIsBriefingLoading(false)
     },
     [activeAreaLabel, region, selectedCategories],
   )
