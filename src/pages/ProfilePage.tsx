@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form"
 import { useUser } from "@clerk/clerk-react"
 import { toast } from "sonner"
 
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,6 +41,9 @@ export function ProfilePage() {
 
   return (
     <main className="min-h-svh bg-background p-6 md:p-10">
+      <div className="absolute top-6 right-6 z-20">
+        <ThemeToggle />
+      </div>
       <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[300px_1fr]">
         <Card className="h-fit">
           <CardHeader>

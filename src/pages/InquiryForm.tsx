@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
 
 import { useInquiryFlow } from "@/context/InquiryFlowContext"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -41,6 +42,9 @@ export function InquiryFormPage() {
 
   return (
     <main className="min-h-svh bg-gradient-to-br from-slate-100 via-slate-50 to-cyan-100 p-6 dark:from-slate-950 dark:via-slate-900 dark:to-cyan-950/50">
+      <div className="absolute top-6 right-6 z-20">
+        <ThemeToggle />
+      </div>
       <div className="mx-auto flex min-h-[calc(100svh-3rem)] max-w-3xl items-center justify-center">
         <Card className="w-full border-border/50 bg-background/65 shadow-2xl shadow-primary/15 backdrop-blur-xl">
           <CardHeader>

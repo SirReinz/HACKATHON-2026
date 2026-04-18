@@ -1,9 +1,14 @@
 import { Link } from "react-router-dom"
 import { SignIn } from "@clerk/clerk-react"
 
+import { ThemeToggle } from "@/components/theme-toggle"
+
 export function SignInPage() {
   return (
     <main className="grid min-h-svh place-items-center bg-gradient-to-br from-background via-muted/60 to-background p-6">
+      <div className="absolute top-6 right-6 z-20">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md space-y-4">
         <div className="rounded-3xl border bg-card/80 p-3 shadow-sm backdrop-blur-sm">
           <SignIn

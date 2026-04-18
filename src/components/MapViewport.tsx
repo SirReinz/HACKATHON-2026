@@ -22,17 +22,14 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 import { supabase } from "@/lib/supabase"
-<<<<<<< HEAD
-import { useSupabasePlaces } from "../hooks/useSupabasePlaces"
-=======
 import { buildSelection, CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
 import type { ClusterSelection } from "@/types/selection"
+import { useSupabasePlaces } from "@/hooks/useSupabasePlaces"
 import { MapPin } from "lucide-react"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 
@@ -162,15 +159,11 @@ const unclusteredLayer: LayerProps = {
   },
 }
 
-<<<<<<< HEAD
-function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>) {
-=======
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>): BBox {
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
+function boundaryToBBox(boundary: Feature<Polygon | MultiPolygon>) {
   let minLng = Number.POSITIVE_INFINITY
   let minLat = Number.POSITIVE_INFINITY
   let maxLng = Number.NEGATIVE_INFINITY
@@ -305,39 +298,19 @@ async function fetchNominatimBoundary(query: string): Promise<{
 // ---------------------------------------------------------------------------
 
 export function MapViewport({ region }: MapViewportProps) {
-<<<<<<< HEAD
   const navigate = useNavigate()
   const mapRef = React.useRef<MapRef | null>(null)
-=======
-  const mapRef    = React.useRef<MapRef | null>(null)
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
   const { theme } = useTheme()
 
   // --- state ----------------------------------------------------------------
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>(defaultCategories)
-<<<<<<< HEAD
   const [queryGeometry, setQueryGeometry] = React.useState<Polygon | MultiPolygon | null>(null)
   const [queryTrigger, setQueryTrigger] = React.useState(0)
-  const [highlightBoundary, setHighlightBoundary] = React.useState<
-    Feature<Polygon | MultiPolygon> | null
-  >(null)
+  const [highlightBoundary, setHighlightBoundary] = React.useState<Feature<Polygon | MultiPolygon> | null>(null)
   const [activeAreaLabel, setActiveAreaLabel] = React.useState<string | null>(null)
-  const [selection, setSelection] = React.useState<ClusterSelection>({
-    type: "none",
-    label: "No active selection",
-    count: 0,
-  })
-  const [briefing, setBriefing] = React.useState(
-    "Search and select an area to highlight its true boundary and extract business intelligence."
-=======
-  const [queryBBox,           setQueryBBox]          = React.useState<BBox | null>(null)
-  const [highlightBoundary,   setHighlightBoundary]  = React.useState<Feature<Polygon | MultiPolygon> | null>(null)
-  const [pendingQueryBBox,    setPendingQueryBBox]   = React.useState<BBox | null>(null)
-  const [activeAreaLabel,     setActiveAreaLabel]    = React.useState<string | null>(null)
-  const [selection,           setSelection]          = React.useState<ClusterSelection>(defaultSelection)
+  const [selection, setSelection] = React.useState<ClusterSelection>(defaultSelection)
   const [briefing,            setBriefing]           = React.useState(
     "Search and select an area to highlight its true boundary and extract business intelligence.",
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
   )
   const [isBriefingLoading, setIsBriefingLoading] = React.useState(false)
   const [searchQuery,       setSearchQuery]        = React.useState("")
@@ -345,21 +318,12 @@ export function MapViewport({ region }: MapViewportProps) {
   const [searchLoading,     setSearchLoading]      = React.useState(false)
   const [searchOpen,        setSearchOpen]         = React.useState(false)
 
-<<<<<<< HEAD
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [searchResults, setSearchResults] = React.useState<MapboxSuggestion[]>([])
-  const [searchLoading, setSearchLoading] = React.useState(false)
-  const [searchOpen, setSearchOpen] = React.useState(false)
-
+  // --- data -----------------------------------------------------------------
   const { data, loading, error, telemetry } = useSupabasePlaces(
     queryGeometry,
     selectedCategories,
     queryTrigger
   )
-=======
-  // --- data -----------------------------------------------------------------
-  const { data, loading, error, telemetry } = useSupabasePlaces(queryBBox, selectedCategories)
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
 
   // --- derived --------------------------------------------------------------
   const isDark =
@@ -476,16 +440,8 @@ export function MapViewport({ region }: MapViewportProps) {
     }
 
     map.on("styledata", handleStyleData)
-<<<<<<< HEAD
-
-    return () => {
-      map.off("styledata", handleStyleData)
-    }
-  }, [highlightBoundary, isDark])
-=======
     return () => { map.off("styledata", handleStyleData) }
-  }, [highlightBoundary, isDark, pendingQueryBBox])
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
+  }, [highlightBoundary, isDark])
 
   // --- callbacks ------------------------------------------------------------
 
@@ -493,20 +449,8 @@ export function MapViewport({ region }: MapViewportProps) {
     async (pointCount: number) => {
       setIsBriefingLoading(true)
       const { data: response, error: invokeError } = await supabase.functions.invoke(
-<<<<<<< HEAD
-        "smart-responder",
-        {
-          body: {
-            region,
-            pointCount,
-            categories: selectedCategories,
-            activeArea: activeAreaLabel,
-          },
-        }
-=======
         "generate-briefing",
         { body: { region, pointCount, categories: selectedCategories, activeArea: activeAreaLabel } },
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
       )
 
       if (invokeError) {
@@ -553,17 +497,12 @@ export function MapViewport({ region }: MapViewportProps) {
   }, [])
 
   const handleSearchAreaClick = React.useCallback(() => {
-<<<<<<< HEAD
     if (!highlightBoundary) {
       return
     }
 
     setQueryGeometry(highlightBoundary.geometry)
     setQueryTrigger((value) => value + 1)
-=======
-    if (!highlightBoundary) return
-    setQueryBBox(boundaryToBBox(highlightBoundary))
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
   }, [highlightBoundary])
 
   const handleMapClick = React.useCallback(
@@ -667,12 +606,8 @@ export function MapViewport({ region }: MapViewportProps) {
         <div className="h-full w-full bg-muted" />
       )}
 
-<<<<<<< HEAD
-      <div className="pointer-events-none absolute inset-0 z-10 bg-linear-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
-=======
       {/* Gradient overlay */}
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
+      <div className="pointer-events-none absolute inset-0 z-10 bg-linear-to-b from-black/5 via-transparent to-black/20 dark:from-black/30 dark:to-black/55" />
 
       {/* Theme toggle */}
       <div className="absolute top-4 right-4 z-50 md:top-5 md:right-5">
@@ -763,18 +698,10 @@ export function MapViewport({ region }: MapViewportProps) {
           <p>
             <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
           </p>
-<<<<<<< HEAD
-          <div className="space-y-1">
-            {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => (
-              <p key={name}>
-                <span className="text-muted-foreground">{name}:</span> {count}
-              </p>
-            ))}
-=======
 
           {/* Category breakdown with icons */}
           <div className="space-y-1 pt-1">
-            {Object.entries(telemetry.byCategory).map(([name, count]) => {
+            {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => {
               const meta = CATEGORY_ICON_MAP[name]
               const Icon = meta?.icon
               return (
@@ -787,7 +714,6 @@ export function MapViewport({ region }: MapViewportProps) {
                 </div>
               )
             })}
->>>>>>> 2bffc34e8eea357aab9617a8ab2c728d3fa9341c
           </div>
 
           <div className="mt-3 flex gap-2">

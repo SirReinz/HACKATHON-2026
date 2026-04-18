@@ -1,6 +1,6 @@
 import { useLocation } from "react-router-dom"
 
-import { MapViewport } from "../components/MapViewport"
+import { MapViewport } from "@/components/MapViewport"
 
 export function MapPage() {
   const location = useLocation()
