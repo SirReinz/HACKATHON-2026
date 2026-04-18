@@ -1,4 +1,19 @@
-import { Check, ChevronDown, X } from "lucide-react"
+import {
+  Calendar,
+  Check,
+  ChevronDown,
+  Briefcase,
+  HeartPulse,
+  Landmark,
+  Palette,
+  Plane,
+  ShoppingBag,
+  Trophy,
+  Users,
+  Utensils,
+  X,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,6 +30,55 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { PLACE_CATEGORY_OPTIONS } from "@/lib/place-categories"
 
+// ---------------------------------------------------------------------------
+// Contrast helper — WCAG relative luminance → #111827 or #ffffff
+// Handles full hex (#rrggbb) and shorthand (#rgb)
+// ---------------------------------------------------------------------------
+
+function getContrastColor(hex: string): string {
+  const clean = hex.replace("#", "")
+  const full  =
+    clean.length === 3
+      ? clean.split("").map((c) => c + c).join("")
+      : clean
+
+  const r = parseInt(full.substring(0, 2), 16)
+  const g = parseInt(full.substring(2, 4), 16)
+  const b = parseInt(full.substring(4, 6), 16)
+
+  const toLinear = (c: number) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+
+  const luminance =
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
+
+  // > 0.179 is the WCAG threshold between "light" and "dark" backgrounds
+  return luminance > 0.179 ? "#111827" : "#ffffff"
+}
+
+// ---------------------------------------------------------------------------
+// Icon map
+// ---------------------------------------------------------------------------
+
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  "Arts and Entertainment":            Palette,
+  "Business and Professional Service": Briefcase,
+  "Community and Government":          Users,
+  "Dining and Drinking":               Utensils,
+  Event:                               Calendar,
+  "Health and Medicine":               HeartPulse,
+  "Landmarks and Outdoors":            Landmark,
+  Retail:                              ShoppingBag,
+  "Sports and Recreation":             Trophy,
+  "Travel and Transportation":         Plane,
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 type FilterPanelProps = {
   selectedCategories: string[]
   onChangeCategories: (categories: string[]) => void
@@ -27,6 +91,10 @@ type FilterPanelProps = {
   error?: string | null
   compact?: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function FilterPanel({
   selectedCategories,
@@ -45,7 +113,6 @@ export function FilterPanel({
       onChangeCategories(selectedCategories.filter((item) => item !== category))
       return
     }
-
     onChangeCategories([...selectedCategories, category])
   }
 
@@ -58,7 +125,10 @@ export function FilterPanel({
       <CardHeader className={compact ? "pb-3" : ""}>
         <CardTitle>Filter of Area</CardTitle>
       </CardHeader>
+
       <CardContent className="space-y-4">
+
+        {/* ── Category dropdown ─────────────────────────────────────────── */}
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" className="w-full justify-between rounded-2xl">
@@ -66,6 +136,7 @@ export function FilterPanel({
               <ChevronDown className="size-4 opacity-70" />
             </Button>
           </PopoverTrigger>
+
           <PopoverContent align="start" className="w-[min(360px,90vw)] p-0">
             <Command>
               <CommandInput placeholder="Search categories..." />
@@ -74,13 +145,26 @@ export function FilterPanel({
                 <CommandGroup heading="Categories">
                   {PLACE_CATEGORY_OPTIONS.map((category) => {
                     const selected = selectedCategories.includes(category)
+                    const Icon     = CATEGORY_ICONS[category]
+                    const color    = categoryColors?.[category] ?? "#64748b"
+
                     return (
                       <CommandItem
                         key={category}
                         value={category}
                         onSelect={() => toggleCategory(category)}
+                        className="gap-2"
                       >
-                        <Check className={`size-4 ${selected ? "opacity-100" : "opacity-0"}`} />
+                        <Check
+                          className={`size-4 shrink-0 ${selected ? "opacity-100" : "opacity-0"}`}
+                        />
+                        {Icon && (
+                          <Icon
+                            className="size-4 shrink-0"
+                            style={{ color }}
+                            strokeWidth={2}
+                          />
+                        )}
                         <span>{category}</span>
                       </CommandItem>
                     )
@@ -91,28 +175,58 @@ export function FilterPanel({
           </PopoverContent>
         </Popover>
 
+        {/* ── Selected category badges ───────────────────────────────────── */}
         <div className="rounded-xl border border-border/60 bg-background/30 p-2">
-          <ScrollArea className="h-20 pr-2">
+          <ScrollArea className="h-24 pr-2">
             <div className="flex flex-wrap gap-2">
               {selectedCategories.length ? (
-                selectedCategories.map((category) => (
-                  <Badge
-                    key={category}
-                    variant="secondary"
-                    className="gap-1.5 border-transparent pr-1 text-white"
-                    style={{ backgroundColor: categoryColors?.[category] ?? "#64748b" }}
-                  >
-                    <span>{category}</span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${category}`}
-                      className="rounded-full p-0.5 hover:bg-foreground/10"
-                      onClick={() => removeCategory(category)}
+                selectedCategories.map((category) => {
+                  const Icon      = CATEGORY_ICONS[category]
+                  const bgColor   = categoryColors?.[category] ?? "#64748b"
+                  const textColor = getContrastColor(bgColor)
+
+                  return (
+                    <Badge
+                      key={category}
+                      variant="secondary"
+                      className="gap-1.5 border-transparent pr-1"
+                      style={{
+                        backgroundColor: bgColor,
+                        color:           textColor,
+                      }}
                     >
-                      <X className="size-3" />
-                    </button>
-                  </Badge>
-                ))
+                      {/* Icon inherits textColor */}
+                      {Icon && (
+                        <Icon
+                          className="size-3 shrink-0"
+                          style={{ color: textColor }}
+                          strokeWidth={2.5}
+                        />
+                      )}
+
+                      <span
+                        style={{
+                          textShadow: textColor === "#ffffff"
+                            ? "0 1px 2px rgba(0,0,0,0.45)"
+                            : "0 1px 2px rgba(255,255,255,0.45)",
+                        }}
+                      >
+                        {category}
+                      </span>
+
+                      {/* Remove button also inherits textColor */}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${category}`}
+                        className="rounded-full p-0.5 hover:bg-black/10"
+                        style={{ color: textColor }}
+                        onClick={() => removeCategory(category)}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  )
+                })
               ) : (
                 <p className="text-xs text-muted-foreground">No categories selected.</p>
               )}
@@ -120,6 +234,7 @@ export function FilterPanel({
           </ScrollArea>
         </div>
 
+        {/* ── Select all / Clear ────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
           {onSelectAllCategories ? (
             <Button
@@ -144,6 +259,7 @@ export function FilterPanel({
           ) : null}
         </div>
 
+        {/* ── Search button ─────────────────────────────────────────────── */}
         <Button
           onClick={onSearchArea}
           className="w-full rounded-2xl"
