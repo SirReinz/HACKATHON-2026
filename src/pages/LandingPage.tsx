@@ -1,39 +1,16 @@
-import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import Map from "react-map-gl/mapbox"
-import axelLogo from "@/assets/axel-logo.svg"
 
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 
-type Region = {
-  label: string
-  value: string
-}
-
-const regions: Region[] = [
-  { label: "Australia", value: "australia" },
-  { label: "New Zealand", value: "new-zealand" },
-  { label: "Singapore", value: "singapore" },
-]
-
 export function LandingPage() {
   const navigate = useNavigate()
   const { theme } = useTheme()
-  const [open, setOpen] = React.useState(false)
 
   const isDark =
     theme === "dark" ||
@@ -79,7 +56,7 @@ export function LandingPage() {
             </div>
 
             <div className="flex items-start justify-end">
-              <img src={axelLogo} alt="Axel logo" className="size-20 shrink-0 sm:size-24" />
+              <img src="/axel-logo.svg" alt="Axel logo" className="size-20 shrink-0 sm:size-24" />
             </div>
           </CardContent>
         </Card>

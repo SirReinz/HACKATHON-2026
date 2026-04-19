@@ -3,7 +3,6 @@ import { useUser } from "@clerk/clerk-react"
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
-import axelLogo from "@/assets/axel-logo.svg"
 import { MarketRadarChart } from "@/components/charts/MarketRadarChart"
 import { VenueMixChart } from "@/components/charts/VenueMixChart"
 import { InquiryFormDialog } from "@/components/InquiryFormDialog"
@@ -267,7 +266,7 @@ export function DashboardPage() {
       <header className="fixed top-0 right-0 left-0 z-50 border-b border-border/80 bg-background/95 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-400 items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <img src={axelLogo} alt="AXEL logo" className="h-8 w-auto" />
+            <img src="/axel-logo.svg" alt="AXEL logo" className="h-8 w-auto" />
             <div className="space-y-0.5">
               <span className="block text-2xl leading-none font-semibold tracking-[0.18em] text-cyan-600 dark:text-cyan-300">AXEL</span>
               <p className="text-[11px] leading-none tracking-[0.2em] text-muted-foreground uppercase">Information made easy</p>

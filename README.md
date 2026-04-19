@@ -1,23 +1,29 @@
 HACKATHON 2026 COMMSTEM DATASOC
 
-# React + TypeScript + Vite + shadcn/ui
+# Running the application
+Access a deployed version of the application on Vercel here: [AXEL HACKATHON PAGE](axel-hackathon.me) 
+(Domain name: www.axel-hackathon.me)
 
-This is a template for a new Vite project with React, TypeScript, and shadcn/ui.
+> [!WARNING]
+To run the application locally, you will be required to fill out the .env file with actual tokens or else the application will break.
 
-## Adding components
+> [!NOTE]
+To run the application, please ensure "npm" or equivalent package manager 
 
-To add components to your app, run the following command:
+(..\HACKATHON-2026> is the direction shown in the terminal, please run the commands from npm onwards)
+``` 
+terminal
+copy .env.example .env
 
-```bash
-npx shadcn@latest add button
+fill out the .env file with actual tokens (please contact the team if tokens are required)
 ```
 
-This will place the ui components in the `src/components` directory.
-
-## Using components
-
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button"
+``` 
+terminal
+..\HACKATHON-2026> npm install
+..\HACKATHON-2026> npm run dev
 ```
+
+## Code Stack
+This project has been written in React Typescript, using React Router with a framework of Vite. Modules used include shadCN, tailwindcss for styling, Clerk for authentication, Supabase for database, MapBox for map items and 3D map display, Nominatim lookups for suburb boundaries, Vercel for hosting, Groq for AI API calls.
+
