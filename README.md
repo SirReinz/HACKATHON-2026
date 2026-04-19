@@ -27,3 +27,10 @@ terminal
 ## Code Stack
 This project has been written in React Typescript, using React Router with a framework of Vite. Modules used include shadCN, tailwindcss for styling, Clerk for authentication, Supabase for database, MapBox for map items and 3D map display, Nominatim lookups for suburb boundaries, Vercel for hosting, Groq for AI API calls.
 
+## AI Acknowledgement
+This project has been assisted by Artificial Intelligence. Agents and models were used to assist in ideas, coding and assistance in choosing and work with the stack.
+Models Used:
+Claude Haiku 4.5
+Claude Sonnet 4.6
+Gemini 3.1 Pro
+GPT-5.3-Codex
