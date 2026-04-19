@@ -269,7 +269,7 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
           duration: 1800,
           essential: true,
         })
-        startOrbit()
+        stopOrbit()
         return
       }
 
