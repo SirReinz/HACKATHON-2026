@@ -467,29 +467,73 @@ export function ResultsCarouselPage() {
     void restoreInquiry()
   }, [inquiryId, navigate, setDraft, user])
 
-  // ── NEW: fetch scored results from edge function ────────────────────────
+  // ── Score suburbs directly from axel_master ───────────────────────────
   React.useEffect(() => {
     if (!draft || restoredInquiryRef.current) return
 
     setScoringLoading(true)
     setFetchMessage("Finding best suburbs for your business...")
 
-    supabase.functions
-      .invoke("score-suburbs", {
-        body: {
-          businessType: draft.businessType,
-          spendingBracket: draft.spendingBracket,
-        },
-      })
+    const bracket = draft.spendingBracket
+    const targetDecile = bracket === "$" ? 2.5 : bracket === "$$$" ? 8.5 : 5.5
+
+    supabase
+      .from("axel_master")
+      .select("display_name, sa2_name, population_2025, seifa_decile, pois_per_1000_people")
+      .not("seifa_decile", "is", null)
+      .not("population_2025", "is", null)
+      .gt("population_2025", 5000)       // minimum viable market: 5k+ residents
+      .gt("pois_per_1000_people", 0.5)   // must have some existing commercial activity
       .then(({ data, error }) => {
-        if (error || !data?.results?.length) {
-          console.error("Scoring error:", error)
+        if (error || !data?.length) {
+          console.error("Scoring query error:", error)
           toast.error("Could not score suburbs — showing default results.")
           setScoredResults(FALLBACK_RESULTS)
-        } else {
-          setScoredResults(data.results as ResultSuburb[])
-          setActiveIndex(0)
+          setScoringLoading(false)
+          setFetchMessage(null)
+          return
         }
+
+        type AxelRow = {
+          display_name?: string | null
+          sa2_name?: string | null
+          population_2025?: number | null
+          seifa_decile?: number | null
+          pois_per_1000_people?: number | null
+        }
+
+        const scored = (data as AxelRow[])
+          .map((row, i) => {
+            const decile = Number(row.seifa_decile ?? 5)
+            const pop = Number(row.population_2025 ?? 0)
+            const pois = Number(row.pois_per_1000_people ?? 0)
+            // wealthMatch: /8 denominator → 8+ deciles off = 0; bracket is dominant driver
+            const wealthMatch = Math.max(0, 1 - Math.abs(decile - targetDecile) / 8)
+            // Population: log scale so 5k vs 30k is meaningfully differentiated
+            const popScore = Math.min(1, Math.log10(Math.max(pop, 1000)) / Math.log10(40_000))
+            // Competition: floor pois at 1.0 so zero-POI areas aren't rewarded —
+            // 0 businesses/1k = no commercial infrastructure, not an opportunity
+            const effectivePois = Math.max(pois, 1.0)
+            const lowComp = Math.max(0, 1 - Math.min(1, effectivePois / 15))
+            // wealthMatch 45% (bracket signal), lowComp 30%, popScore 25%
+            const finalScore = Math.round((wealthMatch * 0.45 + lowComp * 0.30 + popScore * 0.25) * 100)
+            const name = String(row.sa2_name ?? row.display_name ?? "Unknown")
+            return {
+              name,
+              displayName: row.display_name ? String(row.display_name) : undefined,
+              fallbackCenter: fallbackCenterForSuburb(name, i),
+              finalScore,
+              competitorsPerThousand: Math.round(pois * 10) / 10,
+              seifaDecile: decile,
+              population: pop,
+              competitorCount: Math.round((pois * pop) / 1000),
+            } satisfies ResultSuburb
+          })
+          .sort((a, b) => b.finalScore - a.finalScore)
+          .slice(0, 3)
+
+        setScoredResults(scored.length ? scored : FALLBACK_RESULTS)
+        if (scored.length) setActiveIndex(0)
         setScoringLoading(false)
         setFetchMessage(null)
       })
@@ -1111,7 +1155,7 @@ export function ResultsCarouselPage() {
                     <p>
                       <span className="text-muted-foreground">Axel Score:</span>{" "}
                       {activeSuburb.finalScore !== undefined && activeSuburb.finalScore !== null
-                        ? `${(activeSuburb.finalScore * 100).toFixed(0)} / 100`
+                        ? `${activeSuburb.finalScore} / 100`
                         : "N/A"}
                     </p>
 

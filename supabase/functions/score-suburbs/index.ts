@@ -1,5 +1,6 @@
-// @ts-ignore: Deno remote module import resolves in Supabase Edge runtime.
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+// @ts-nocheck
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,141 +8,50 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-type BriefingRequest = {
-  region?: string
-  activeArea?: string
-  suburb_name?: string
-  pointCount?: number
-  categories?: string[]
+type RequestBody = {
   businessType?: string
   spendingBracket?: string
 }
 
-function asString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined
-  }
-
-  const normalized = value.trim()
-  return normalized.length ? normalized : undefined
+type AxelRow = {
+  display_name?: string | null
+  sa2_name?: string | null
+  population_2025?: number | null
+  seifa_decile?: number | null
+  pois_per_1000_people?: number | null
+  seifa_score?: number | null
+  centroid_lng?: number | null
+  centroid_lat?: number | null
 }
 
-function asNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
-  }
-
-  return undefined
+type ResultSuburb = {
+  name: string
+  displayName?: string
+  fallbackCenter: [number, number]
+  finalScore: number
+  competitorsPerThousand: number
+  seifaDecile: number
+  population: number
+  competitorCount: number
 }
 
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .map((item) => asString(item))
-    .filter((item): item is string => Boolean(item))
+function targetDecile(bracket: string): number {
+  if (bracket === "$") return 2.5
+  if (bracket === "$$$") return 8.5
+  return 5.5
 }
 
-function buildFallbackBriefing(payload: BriefingRequest): string {
-  const suburb = asString(payload.suburb_name) ?? asString(payload.activeArea) ?? "Selected Area"
-  const businessType = asString(payload.businessType) ?? "business"
-  const spendingBracket = asString(payload.spendingBracket) ?? "$$"
-  const region = asString(payload.region) ?? "the region"
-  const pointCount = asNumber(payload.pointCount) ?? 0
-  const categories = asStringArray(payload.categories)
+function computeScore(row: AxelRow, decileTarget: number): number {
+  const decile = Number(row.seifa_decile ?? 5)
+  const pop = Number(row.population_2025 ?? 0)
+  const pois = Number(row.pois_per_1000_people ?? 0)
 
-  const categoryLine = categories.length
-    ? `Primary categories in scope: ${categories.join(", ")}.`
-    : "No category pre-filter was applied."
+  const wealthMatch = Math.max(0, 1 - Math.abs(decile - decileTarget) / 10)
+  const popScore = Math.min(1, pop / 250000)
+  const marketSize = Math.min(1, (pop * Math.max(decile, 1)) / 2_000_000)
+  const lowCompetition = Math.max(0, 1 - Math.min(1, pois / 20))
 
-  const densityLine =
-    pointCount > 0
-      ? `Observed venue count in ${suburb}: ${pointCount}.`
-      : `Venue count for ${suburb} is still loading; treat this as a directional assessment.`
-
-  return [
-    `AXEL briefing for ${suburb} (${region})`,
-    `Business model: ${businessType}. Spending profile: ${spendingBracket}.`,
-    densityLine,
-    categoryLine,
-    "Recommendation: run a pilot activation for 4-6 weeks, measure conversion by hour and daypart, then compare CAC and repeat-rate before committing to a long lease.",
-  ].join("\n\n")
-}
-
-async function generateWithGemini(payload: BriefingRequest): Promise<string | null> {
-  // @ts-ignore: Deno global is available in Supabase Edge runtime.
-  const geminiApiKey = Deno.env.get("GEMINI_API_KEY")
-  if (!geminiApiKey) {
-    return null
-  }
-
-  const suburb = asString(payload.suburb_name) ?? asString(payload.activeArea) ?? "Selected Area"
-  const businessType = asString(payload.businessType) ?? "business"
-  const spendingBracket = asString(payload.spendingBracket) ?? "$$"
-  const region = asString(payload.region) ?? "the region"
-  const pointCount = asNumber(payload.pointCount) ?? 0
-  const categories = asStringArray(payload.categories)
-
-  const prompt = [
-    "You are a commercial location intelligence analyst.",
-    "Provide a concise, practical market-entry assessment in plain English.",
-    `Suburb: ${suburb}`,
-    `Region: ${region}`,
-    `Business type: ${businessType}`,
-    `Spending bracket: ${spendingBracket}`,
-    `Observed venue count: ${pointCount}`,
-    `Categories filter: ${categories.length ? categories.join(", ") : "none"}`,
-    "Output sections: Opportunity, Risks, Positioning, Action Plan (3 bullets).",
-  ].join("\n")
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={geminiApiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 500,
-        },
-      }),
-    }
-  )
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Gemini request failed (${response.status}): ${errorText}`)
-  }
-
-  const payloadJson = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          text?: string
-        }>
-      }
-    }>
-  }
-
-  const text = payloadJson.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-  return text && text.length ? text : null
+  return wealthMatch * 0.35 + popScore * 0.25 + marketSize * 0.2 + lowCompetition * 0.2
 }
 
 serve(async (req: Request) => {
@@ -149,31 +59,79 @@ serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders })
   }
 
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
+  try {
+    const body = (await req.json()) as RequestBody
+    const bracket = body.spendingBracket ?? "$$"
+    const decileTarget = targetDecile(bracket)
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    )
+
+    // Try to fetch with centroid columns first; fall back to basic columns if they don't exist
+    let rows: AxelRow[] = []
+    const { data: withCentroids, error: e1 } = await supabase
+      .from("axel_master")
+      .select("display_name, sa2_name, population_2025, seifa_decile, pois_per_1000_people, seifa_score, centroid_lng, centroid_lat")
+      .not("seifa_decile", "is", null)
+      .not("population_2025", "is", null)
+      .gt("population_2025", 0)
+
+    if (!e1 && withCentroids?.length) {
+      rows = withCentroids as AxelRow[]
+    } else {
+      const { data: basic, error: e2 } = await supabase
+        .from("axel_master")
+        .select("display_name, sa2_name, population_2025, seifa_decile, pois_per_1000_people, seifa_score")
+        .not("seifa_decile", "is", null)
+        .not("population_2025", "is", null)
+        .gt("population_2025", 0)
+
+      if (e2 || !basic?.length) {
+        console.error("axel_master query failed:", e2)
+        return new Response(JSON.stringify({ error: "Failed to query suburb data" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        })
+      }
+      rows = basic as AxelRow[]
+    }
+
+    const results: ResultSuburb[] = rows
+      .map((row) => {
+        const name = String(row.sa2_name ?? row.display_name ?? "Unknown")
+        const displayName = row.display_name ? String(row.display_name) : undefined
+        const lng = Number(row.centroid_lng ?? 151.2093)
+        const lat = Number(row.centroid_lat ?? -33.8688)
+        const pois = Number(row.pois_per_1000_people ?? 0)
+        const pop = Number(row.population_2025 ?? 0)
+        const decile = Number(row.seifa_decile ?? 5)
+        const score = computeScore(row, decileTarget)
+
+        return {
+          name,
+          displayName,
+          fallbackCenter: [lng, lat] as [number, number],
+          finalScore: Math.round(score * 100),
+          competitorsPerThousand: Math.round(pois * 10) / 10,
+          seifaDecile: decile,
+          population: pop,
+          competitorCount: Math.round((pois * pop) / 1000),
+        }
+      })
+      .sort((a, b) => b.finalScore - a.finalScore)
+      .slice(0, 3)
+
+    return new Response(JSON.stringify({ results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
-  }
-
-  try {
-    const requestBody = (await req.json()) as BriefingRequest
-    const generated = (await generateWithGemini(requestBody)) ?? buildFallbackBriefing(requestBody)
-
-    return new Response(
-      JSON.stringify({
-        briefing: generated,
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error"
-
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error"
+    console.error("score-suburbs error:", message)
     return new Response(JSON.stringify({ error: message }), {
+      status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
     })
   }
 })
