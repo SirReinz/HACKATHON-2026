@@ -2,6 +2,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { ClerkProvider } from "@clerk/clerk-react"
 import { BrowserRouter } from "react-router-dom"
+import mapboxgl from "mapbox-gl"
 
 import "./index.css"
 import "mapbox-gl/dist/mapbox-gl.css"
@@ -15,6 +16,9 @@ const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 if (!clerkPublishableKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in environment.")
 }
+
+// Prevent noisy Mapbox telemetry network calls that ad blockers often block.
+;(mapboxgl as unknown as { setTelemetryEnabled?: (enabled: boolean) => void }).setTelemetryEnabled?.(false)
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

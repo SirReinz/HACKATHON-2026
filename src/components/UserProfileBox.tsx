@@ -155,15 +155,12 @@ export function UserProfileBox() {
               <p className="text-xs text-muted-foreground">Profile</p>
             </div>
 
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="ml-auto rounded-full text-muted-foreground hover:bg-accent hover:text-foreground dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
-              aria-label="Edit Profile"
+            <span
+              className="ml-auto inline-flex size-6 items-center justify-center rounded-full text-muted-foreground dark:text-slate-300"
+              aria-hidden="true"
             >
               <Settings2 className="size-3.5" />
-            </Button>
+            </span>
         </button>
       </DialogTrigger>
 

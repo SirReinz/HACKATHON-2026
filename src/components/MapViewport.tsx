@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson"
 import type { ExpressionSpecification, GeoJSONSource } from "mapbox-gl"
 import type { Map as MapboxMap } from "mapbox-gl"
@@ -26,6 +26,7 @@ import { buildSelection, CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
 import type { ClusterSelection } from "@/types/selection"
 import { useSupabasePlaces } from "@/hooks/useSupabasePlaces"
 import { MapPin } from "lucide-react"
+import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -665,6 +666,25 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
     setQueryTrigger((value) => value + 1)
   }, [highlightBoundary])
 
+  const handleOpenDeepDive = React.useCallback(() => {
+    if (!activeAreaLabel?.trim()) {
+      toast.error("Select an area first to open Deep Dive.")
+      return
+    }
+
+    navigate("/details", {
+      state: {
+        areaLabel: activeAreaLabel,
+        briefing,
+        venueCount: telemetry.total,
+        population: areaInsights?.population,
+        wealthDecile: areaInsights?.wealthDecile,
+        venuePerThousand: areaInsights?.venuePerThousand,
+        axelScore: areaInsights?.axelScore,
+      },
+    })
+  }, [activeAreaLabel, areaInsights, briefing, navigate, telemetry.total])
+
   const handleMapClick = React.useCallback(
     (event: MapMouseEvent) => {
       if (!mapRef.current || !activeAreaLabel) return
@@ -918,8 +938,12 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
               <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>
                 Clear Selection
               </Button>
-              <Button asChild className="w-full rounded-2xl">
-                <Link to="/details">Deep Dive</Link>
+              <Button
+                className="w-full rounded-2xl"
+                onClick={handleOpenDeepDive}
+                disabled={!activeAreaLabel}
+              >
+                Deep Dive
               </Button>
             </div>
           </CardContent>
@@ -1032,8 +1056,12 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
                 <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>
                   Clear Selection
                 </Button>
-                <Button asChild className="w-full rounded-2xl">
-                  <Link to="/details">Deep Dive</Link>
+                <Button
+                  className="w-full rounded-2xl"
+                  onClick={handleOpenDeepDive}
+                  disabled={!activeAreaLabel}
+                >
+                  Deep Dive
                 </Button>
               </div>
             </details>

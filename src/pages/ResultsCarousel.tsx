@@ -349,6 +349,7 @@ export function ResultsCarouselPage() {
   const [fetchMessage, setFetchMessage] = React.useState<string | null>(null)
   const [hasSavedInquiry, setHasSavedInquiry] = React.useState(Boolean(inquiryId))
   const [restoringInquiry, setRestoringInquiry] = React.useState(false)
+  const [navigationLocked, setNavigationLocked] = React.useState(false)
 
   // ── NEW: scoring state ──────────────────────────────────────────────────
   const [scoredResults, setScoredResults] = React.useState<ResultSuburb[]>(FALLBACK_RESULTS)
@@ -359,6 +360,7 @@ export function ResultsCarouselPage() {
   const activeRunIdRef = React.useRef(0)
   const rotationRequestRef = React.useRef<number | null>(null)
   const rotationMoveEndHandlerRef = React.useRef<(() => void) | null>(null)
+  const navigationUnlockTimeoutRef = React.useRef<number | null>(null)
   const exitToDashboardRef = React.useRef(false)
   const restoredInquiryRef = React.useRef(false)
 
@@ -521,6 +523,10 @@ export function ResultsCarouselPage() {
       map.off("moveend", rotationMoveEndHandlerRef.current)
       rotationMoveEndHandlerRef.current = null
     }
+    if (navigationUnlockTimeoutRef.current !== null) {
+      window.clearTimeout(navigationUnlockTimeoutRef.current)
+      navigationUnlockTimeoutRef.current = null
+    }
   }, [])
 
   const startCameraRotation = React.useCallback(() => {
@@ -563,6 +569,7 @@ export function ResultsCarouselPage() {
         setVenueData({ type: "FeatureCollection", features: [] })
         setFetchMessage(null)
         setAiSummary(`No boundary data could be resolved for ${label}.`)
+        setNavigationLocked(false)
         return
       }
 
@@ -572,17 +579,33 @@ export function ResultsCarouselPage() {
       const map = mapRef.current?.getMap()
       if (map) {
         stopCameraRotation()
+        setNavigationLocked(true)
 
         const onMoveEnd = () => {
           if (rotationMoveEndHandlerRef.current) {
             map.off("moveend", rotationMoveEndHandlerRef.current)
             rotationMoveEndHandlerRef.current = null
           }
+          if (navigationUnlockTimeoutRef.current !== null) {
+            window.clearTimeout(navigationUnlockTimeoutRef.current)
+            navigationUnlockTimeoutRef.current = null
+          }
+          setNavigationLocked(false)
           startCameraRotation()
         }
 
         rotationMoveEndHandlerRef.current = onMoveEnd
         map.on("moveend", onMoveEnd)
+
+        navigationUnlockTimeoutRef.current = window.setTimeout(() => {
+          if (rotationMoveEndHandlerRef.current) {
+            map.off("moveend", rotationMoveEndHandlerRef.current)
+            rotationMoveEndHandlerRef.current = null
+          }
+          navigationUnlockTimeoutRef.current = null
+          setNavigationLocked(false)
+          startCameraRotation()
+        }, 2500)
 
         map.flyTo({
           center: [(bbox.minLng + bbox.maxLng) / 2, (bbox.minLat + bbox.maxLat) / 2],
@@ -592,6 +615,8 @@ export function ResultsCarouselPage() {
           essential: true,
           duration: 1400,
         })
+      } else {
+        setNavigationLocked(false)
       }
 
       const { rows: resultRows, error: fetchError } = await fetchPlacesInPolygonPaginated(
@@ -809,9 +834,18 @@ export function ResultsCarouselPage() {
     }))
   }, [activeSuburb.displayName, activeSuburb.name, telemetry.total])
 
-  const goNext = () => setActiveIndex((v) => (v + 1) % scoredResults.length)
-  const goPrevious = () => setActiveIndex((v) => (v - 1 + scoredResults.length) % scoredResults.length)
-  const jumpToSuburb = (index: number) => setActiveIndex(index)
+  const goNext = () => {
+    if (navigationLocked) return
+    setActiveIndex((v) => (v + 1) % scoredResults.length)
+  }
+  const goPrevious = () => {
+    if (navigationLocked) return
+    setActiveIndex((v) => (v - 1 + scoredResults.length) % scoredResults.length)
+  }
+  const jumpToSuburb = (index: number) => {
+    if (navigationLocked || index === activeIndex) return
+    setActiveIndex(index)
+  }
 
   const handleExitWithoutSaving = () => {
     exitToDashboardRef.current = true
@@ -934,10 +968,13 @@ export function ResultsCarouselPage() {
                   <button
                     type="button"
                     onClick={() => jumpToSuburb(index)}
+                    disabled={navigationLocked}
                     className={`relative rounded-full px-3 py-1 text-sm transition-all duration-300 ${
                       isActive
                         ? "bg-primary/20 text-primary shadow-[0_0_14px_rgba(56,189,248,0.45)]"
                         : "bg-background/40 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                    } ${
+                      navigationLocked ? "cursor-not-allowed opacity-55" : ""
                     }`}
                   >
                     #{index + 1} {suburbLabel(suburb)}
@@ -976,11 +1013,11 @@ export function ResultsCarouselPage() {
       {/* Navigation */}
       <div className="absolute bottom-6 left-1/2 z-70 -translate-x-1/2">
         <div className="flex items-center gap-3 rounded-full border border-white/25 bg-background/65 p-2 shadow-2xl backdrop-blur-xl">
-          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goPrevious}>
+          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goPrevious} disabled={navigationLocked}>
             <ChevronLeft className="size-5" />
           </Button>
           <p className="px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Navigate</p>
-          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goNext}>
+          <Button size="icon" variant="outline" className="rounded-full border-white/30 bg-background/70 shadow" onClick={goNext} disabled={navigationLocked}>
             <ChevronRight className="size-5" />
           </Button>
         </div>

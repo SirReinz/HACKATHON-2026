@@ -1,9 +1,10 @@
 import * as React from "react"
 import { useUser } from "@clerk/clerk-react"
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 
 import axelLogo from "@/assets/axel-logo.svg"
+import { InquiryFormDialog } from "@/components/InquiryFormDialog"
 import { PreviewMap, type HoveredInquiry } from "@/components/PreviewMap"
 import { UserProfileBox } from "@/components/UserProfileBox"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -39,6 +40,7 @@ type InquiryRow = {
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useUser()
 
   const [inquiries, setInquiries] = React.useState<InquiryRow[]>([])
@@ -49,6 +51,7 @@ export function DashboardPage() {
   const [businessFilterOpen, setBusinessFilterOpen] = React.useState(false)
   const [spendFilterOpen, setSpendFilterOpen] = React.useState(false)
   const [deletingInquiryId, setDeletingInquiryId] = React.useState<string | null>(null)
+  const isInquiryDialogOpen = location.pathname === "/inquiry/new"
 
   React.useEffect(() => {
     let cancelled = false
@@ -439,6 +442,15 @@ export function DashboardPage() {
             </div>
         </section>
       </div>
+
+      <InquiryFormDialog
+        open={isInquiryDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            navigate("/dashboard", { replace: true })
+          }
+        }}
+      />
     </main>
   )
 }

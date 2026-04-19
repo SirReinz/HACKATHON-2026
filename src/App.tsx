@@ -2,7 +2,7 @@ import { SignedIn, SignedOut } from "@clerk/clerk-react"
 import { Navigate, Route, Routes } from "react-router-dom"
 import { InquiryFlowProvider } from "@/context/InquiryFlowContext"
 import { DashboardPage } from "@/pages/DashboardPage"
-import { InquiryFormPage } from "@/pages/InquiryForm"
+import { FreeExploreDetailsPage } from "@/pages/FreeExploreDetailsPage"
 import { ResultsCarouselPage } from "@/pages/ResultsCarousel"
 import { SignInPage } from "@/pages/SignInPage"
 import { SignUpPage } from "@/pages/SignUpPage"
@@ -50,7 +50,7 @@ export function App() {
           path="/inquiry/new"
           element={
             <ProtectedRoute>
-              <InquiryFormPage />
+              <DashboardPage />
             </ProtectedRoute>
           }
         />
@@ -67,6 +67,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <MapPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/details"
+          element={
+            <ProtectedRoute>
+              <FreeExploreDetailsPage />
             </ProtectedRoute>
           }
         />

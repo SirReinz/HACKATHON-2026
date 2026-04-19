@@ -12,8 +12,11 @@
     RadarChart,
   } from "recharts"
   import { X } from "lucide-react"
+  import ReactMarkdown from "react-markdown"
 
   import { useTheme } from "@/components/theme-provider"
+  import { Badge } from "@/components/ui/badge"
+  import { Card, CardContent } from "@/components/ui/card"
   import {
     ChartContainer,
     ChartTooltip,
@@ -225,36 +228,83 @@
 
   // ── Chart helpers ─────────────────────────────────────────────────────────────
 
-  function percentileRanks(values: number[]): number[] {
-    const n = values.length
-    if (n <= 1) return values.map(() => 0.5)
-    const sorted = [...values].sort((a, b) => a - b)
-    return values.map((v) => sorted.indexOf(v) / (n - 1))
+  function ratioByMax(values: number[]): number[] {
+    const maxValue = Math.max(...values)
+    if (!isFinite(maxValue) || maxValue <= 0) {
+      return values.map(() => 0)
+    }
+    return values.map((value) => Math.max(0, value) / maxValue)
   }
 
   function buildRadarData(
     suburbs: ResultSuburb[],
     countsBySuburb: Record<string, number>,
-    spendingBracket: "$" | "$$" | "$$$"
+    spendingBracket?: "$" | "$$" | "$$$"
   ): Array<Record<string, string | number>> {
     if (!suburbs.length) return []
-    const targetDecile = spendingBracket === "$" ? 2.5 : spendingBracket === "$$" ? 5.5 : 8.5
-    const compRanks = percentileRanks(suburbs.map((s) => s.competitorsPerThousand ?? 0))
-    const popRanks = percentileRanks(suburbs.map((s) => s.population ?? 0))
-    const poiRanks = percentileRanks(suburbs.map((s) => countsBySuburb[suburbLabel(s)] ?? 0))
-    const marketRanks = percentileRanks(
-      suburbs.map((s) => (s.population ?? 0) * (s.seifaDecile ?? 1))
-    )
-    const wealthScores = suburbs.map((s) =>
+
+    if (suburbs.length === 1) {
+      const suburb = suburbs[0]
+      const label = suburbLabel(suburb)
+      const targetDecile =
+        spendingBracket === "$"
+          ? 2.5
+          : spendingBracket === "$$"
+            ? 5.5
+            : spendingBracket === "$$$"
+              ? 8.5
+              : 5.5
+      const venueCount = countsBySuburb[label] ?? suburb.competitorCount ?? 0
+      const population = suburb.population ?? 0
+      const seifaDecile = suburb.seifaDecile ?? targetDecile
+      const competitors = suburb.competitorsPerThousand ?? 0
+
+      const clamp = (value: number) => Math.max(0, Math.min(1, value))
+
+      const singleSeries = [
+        { label: "Low Competition", value: clamp(1 - Math.min(1, competitors / 6)) },
+        {
+          label: "Wealth Match",
+          value: clamp(1 - Math.abs(seifaDecile - targetDecile) / 10),
+        },
+        { label: "Population", value: clamp(population / 250000) },
+        { label: "POI Diversity", value: clamp(venueCount / 40) },
+        { label: "Market Size", value: clamp((population * Math.max(seifaDecile, 1)) / 2000000) },
+      ]
+
+      return singleSeries.map(({ label, value }) => ({ metric: label, s0: +value.toFixed(3) }))
+    }
+
+    const targetDecile =
+      spendingBracket === "$"
+        ? 2.5
+        : spendingBracket === "$$"
+          ? 5.5
+          : spendingBracket === "$$$"
+            ? 8.5
+            : 5.5
+    const competitors = suburbs.map((s) => s.competitorsPerThousand ?? 0)
+    const populations = suburbs.map((s) => s.population ?? 0)
+    const poiCounts = suburbs.map((s) => countsBySuburb[suburbLabel(s)] ?? 0)
+    const marketSizes = suburbs.map((s) => (s.population ?? 0) * (s.seifaDecile ?? 1))
+    const wealthRaw = suburbs.map((s) =>
       Math.max(0, 1 - Math.abs((s.seifaDecile ?? 5) - targetDecile) / 10)
     )
+
+    const compRatios = ratioByMax(competitors)
+    const popRatios = ratioByMax(populations)
+    const poiRatios = ratioByMax(poiCounts)
+    const marketRatios = ratioByMax(marketSizes)
+    const wealthRatios = ratioByMax(wealthRaw)
+
     const axes = [
-      { label: "Low Competition", get: (i: number) => +(1 - compRanks[i]).toFixed(3) },
-      { label: "Wealth Match", get: (i: number) => +wealthScores[i].toFixed(3) },
-      { label: "Population", get: (i: number) => +popRanks[i].toFixed(3) },
-      { label: "POI Diversity", get: (i: number) => +poiRanks[i].toFixed(3) },
-      { label: "Market Size", get: (i: number) => +marketRanks[i].toFixed(3) },
+      { label: "Low Competition", get: (i: number) => +(1 - compRatios[i]).toFixed(3) },
+      { label: "Wealth Match", get: (i: number) => +wealthRatios[i].toFixed(3) },
+      { label: "Population", get: (i: number) => +popRatios[i].toFixed(3) },
+      { label: "POI Diversity", get: (i: number) => +poiRatios[i].toFixed(3) },
+      { label: "Market Size", get: (i: number) => +marketRatios[i].toFixed(3) },
     ]
+
     return axes.map(({ label, get }) => {
       const entry: Record<string, string | number> = { metric: label }
       suburbs.forEach((_, i) => {
@@ -275,6 +325,7 @@
     initialAiSummary,
   }: DetailsPageProps) {
     const mapRef = React.useRef<MapRef | null>(null)
+    const mapPanelRef = React.useRef<HTMLDivElement | null>(null)
     const { draft } = useInquiryFlow()
     const { theme } = useTheme()
 
@@ -287,10 +338,6 @@
     })
     const [aiSummary, setAiSummary] = React.useState(initialAiSummary)
     const [briefingLoading, setBriefingLoading] = React.useState(false)
-    const [hoveredDonut, setHoveredDonut] = React.useState<{
-      name: string
-      value: number
-    } | null>(null)
     const [localCounts, setLocalCounts] = React.useState<Record<string, number>>(externalCounts)
 
     const runIdRef = React.useRef(0)
@@ -322,9 +369,8 @@
     )
 
     const radarData = React.useMemo(
-      () =>
-        draft ? buildRadarData(scoredResults, allCounts, draft.spendingBracket) : [],
-      [scoredResults, allCounts, draft]
+      () => buildRadarData(scoredResults, allCounts, draft?.spendingBracket),
+      [scoredResults, allCounts, draft?.spendingBracket]
     )
 
     const boundaryGeoJSON = React.useMemo(
@@ -368,24 +414,61 @@
       return () => document.removeEventListener("keydown", handler)
     }, [open, onClose])
 
-    // Reset donut hover on suburb change
+    // Fit map to boundary after the map has resized to its flex container.
     React.useEffect(() => {
-      setHoveredDonut(null)
-    }, [activeIndex])
-
-    // Fit map to boundary when both are ready
-    React.useEffect(() => {
-      if (!boundary || !mapLoaded) return
+      if (!boundary || !mapLoaded || !open) return
       const map = mapRef.current?.getMap()
       if (!map) return
       const { minLng, minLat, maxLng, maxLat } = boundaryToBBox(boundary)
-      map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-        padding: 60,
-        pitch: 45,
-        bearing: -10,
-        duration: 900,
+
+      const timeoutId = window.setTimeout(() => {
+        map.resize()
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+          padding: 60,
+          pitch: 45,
+          bearing: -10,
+          duration: 900,
+        })
+      }, 100)
+
+      return () => {
+        window.clearTimeout(timeoutId)
+      }
+    }, [boundary, mapLoaded, open])
+
+    // Keep Mapbox aware of dynamic flex sizing changes.
+    React.useEffect(() => {
+      if (!open || !mapLoaded) return
+
+      const panel = mapPanelRef.current
+      const map = mapRef.current?.getMap()
+      if (!panel || !map) return
+
+      const resizeObserver = new ResizeObserver(() => {
+        map.resize()
       })
-    }, [boundary, mapLoaded])
+
+      const timeoutId = window.setTimeout(() => {
+        map.resize()
+
+        if (boundary) {
+          const { minLng, minLat, maxLng, maxLat } = boundaryToBBox(boundary)
+          map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+            padding: 60,
+            pitch: 45,
+            bearing: -10,
+            duration: 600,
+          })
+        }
+      }, 100)
+
+      resizeObserver.observe(panel)
+
+      return () => {
+        window.clearTimeout(timeoutId)
+        resizeObserver.disconnect()
+      }
+    }, [open, mapLoaded, boundary])
 
     // Fetch boundary + venues + (conditionally) AI when suburb changes
     React.useEffect(() => {
@@ -442,7 +525,6 @@
           {
             body: {
               businessType: draft.businessType,
-              targetAudience: draft.targetAudience,
               spendingBracket: draft.spendingBracket,
               suburbName: label,
               venueSummary: summary,
@@ -476,6 +558,8 @@
       }
     }, [open, activeIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    const topVenueMix = [...donutData].sort((a, b) => b.value - a.value).slice(0, 5)
+
     if (!open) return null
 
     const activeColor = SUBURB_COLORS[activeIndex] ?? SUBURB_COLORS[0]
@@ -501,7 +585,7 @@
           if (e.target === e.currentTarget) onClose()
         }}
       >
-        <div className="relative flex h-[88vh] w-[min(96vw,1480px)] flex-col overflow-hidden rounded-2xl border border-border/40 bg-background shadow-2xl">
+        <div className="relative flex h-[95vh] max-h-[95vh] w-[min(96vw,1480px)] flex-col overflow-hidden rounded-2xl border border-border/40 bg-background shadow-2xl">
 
           {/* ── Header ──────────────────────────────────────────────────────── */}
           <header
@@ -530,14 +614,15 @@
                   key={suburbLabel(suburb)}
                   type="button"
                   onClick={() => setActiveIndex(i)}
-                  className="rounded-full px-3 py-1 text-xs font-medium transition-all"
-                  style={
-                    i === activeIndex
-                      ? { background: SUBURB_COLORS[i], color: "#fff" }
-                      : { background: "transparent", color: "var(--muted-foreground)" }
-                  }
+                  className="transition-all"
                 >
-                  #{i + 1} {suburbLabel(suburb)}
+                  <Badge
+                    variant={i === activeIndex ? "default" : "secondary"}
+                    className="px-3 py-1 text-xs"
+                    style={i === activeIndex ? { background: SUBURB_COLORS[i], color: "#fff" } : undefined}
+                  >
+                    #{i + 1} {suburbLabel(suburb)}
+                  </Badge>
                 </button>
               ))}
             </div>
@@ -552,166 +637,157 @@
           </header>
 
           {/* ── 3-column body ────────────────────────────────────────────────── */}
-          <div className="grid min-h-0 flex-1 grid-cols-[360px_1fr_300px]">
+          <div className="flex h-[calc(100vh-120px)] min-h-0 w-full flex-row gap-6 p-6">
 
-            {/* ── Column 1: Charts ─────────────────────────────────────────── */}
-            <ScrollArea className="min-h-0 border-r border-border/50">
-              <div className="space-y-5 py-4 pl-4 pr-8">
-
-                {/* Radar */}
-                <section>
-                  <p className="mb-2 text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
-                    Suburb Comparison
-                  </p>
-                  {radarData.length > 0 ? (
-                    <ChartContainer config={radarChartConfig} className="mx-auto h-[240px] w-full">
-                      <RadarChart
-                        data={radarData}
-                        margin={{ top: 12, right: 48, bottom: 12, left: 48 }}
-                      >
-                        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                        <PolarGrid />
-                        <PolarAngleAxis
-                          dataKey="metric"
-                          tick={{ fontSize: 9 }}
-                        />
-                        <PolarRadiusAxis domain={[0, 1]} tick={false} axisLine={false} />
-                        {scoredResults.map((suburb, i) => (
-                          <Radar
-                            key={suburbLabel(suburb)}
-                            dataKey={`s${i}`}
-                            stroke={`var(--color-s${i})`}
-                            fill={`var(--color-s${i})`}
-                            fillOpacity={activeIndex === i ? 0.25 : 0.07}
-                            strokeWidth={activeIndex === i ? 2.5 : 1.5}
-                            dot={activeIndex === i ? { r: 3, fillOpacity: 1 } : false}
-                          />
-                        ))}
-                      </RadarChart>
-                    </ChartContainer>
-                  ) : (
-                    <div className="flex h-[240px] items-center justify-center">
-                      <Skeleton className="h-36 w-36 rounded-full" />
-                    </div>
-                  )}
-                  {/* Legend */}
-                  <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
-                    {scoredResults.map((suburb, i) => (
-                      <div key={suburbLabel(suburb)} className="flex items-center gap-1">
-                        <span
-                          className="size-2 shrink-0 rounded-full"
-                          style={{ background: SUBURB_COLORS[i] }}
-                        />
-                        <span className="text-[9px] text-muted-foreground">
-                          #{i + 1} {suburbLabel(suburb)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Stats */}
-                <section className="grid grid-cols-2 gap-2">
-                  {[
-                    {
-                      label: "Population",
-                      value:
-                        activeSuburb.population != null
-                          ? activeSuburb.population.toLocaleString()
-                          : "N/A",
-                    },
-                    {
-                      label: "Wealth Decile",
-                      value:
-                        activeSuburb.seifaDecile != null
-                          ? `${activeSuburb.seifaDecile} / 10`
-                          : "N/A",
-                    },
-                    {
-                      label: "Competitors / 1k",
-                      value:
-                        activeSuburb.competitorsPerThousand != null
-                          ? String(activeSuburb.competitorsPerThousand)
-                          : "N/A",
-                    },
-                    {
-                      label: "Axel Score",
-                      value:
-                        activeSuburb.finalScore != null
-                          ? `${(activeSuburb.finalScore * 100).toFixed(0)} / 100`
-                          : "N/A",
-                    },
-                  ].map(({ label, value }) => (
-                    <div
-                      key={label}
-                      className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2"
-                    >
-                      <p className="truncate text-[8px] font-bold tracking-widest text-muted-foreground uppercase">
-                        {label}
-                      </p>
-                      <p className="mt-0.5 text-sm font-semibold tabular-nums">{value}</p>
-                    </div>
-                  ))}
-                </section>
-
-                {/* Donut */}
-                <section>
-                  <p className="mb-2 text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
-                    Venue Mix
-                  </p>
-                  {donutData.length > 0 ? (
-                    <div className="relative">
-                      <ChartContainer config={donutChartConfig} className="mx-auto h-[220px] w-full">
-                        <PieChart>
-                          <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
-                          <Pie
-                            data={donutData}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius={58}
-                            outerRadius={86}
-                            paddingAngle={donutData.length > 1 ? 2 : 0}
-                            onMouseEnter={(entry) =>
-                              setHoveredDonut({
-                                name: entry.name as string,
-                                value: entry.value as number,
-                              })
-                            }
-                            onMouseLeave={() => setHoveredDonut(null)}
-                          />
-                        </PieChart>
+            {/* ── Column 1: Stats / charts ─────────────────────────────────── */}
+            <div className="w-[320px] flex-shrink-0 flex flex-col gap-4 overflow-y-auto pr-2">
+                <div className="space-y-4">
+                  <section>
+                    <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                      Suburb Comparison
+                    </p>
+                    {radarData.length > 0 ? (
+                      <Card className="h-fit shrink-0 border-border/70 bg-muted/20 shadow-none">
+                        <CardContent className="p-4">
+                      <ChartContainer config={radarChartConfig} className="mx-auto h-[240px] w-full">
+                        <RadarChart
+                          data={radarData}
+                          margin={{ top: 12, right: 48, bottom: 12, left: 48 }}
+                        >
+                          <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                          <PolarGrid />
+                          <PolarAngleAxis dataKey="metric" tick={{ fontSize: 9 }} />
+                          <PolarRadiusAxis domain={[0, 1]} tick={false} axisLine={false} />
+                          {scoredResults.map((suburb, i) => (
+                            <Radar
+                              key={suburbLabel(suburb)}
+                              dataKey={`s${i}`}
+                              stroke={`var(--color-s${i})`}
+                              fill={`var(--color-s${i})`}
+                              fillOpacity={activeIndex === i ? 0.25 : 0.07}
+                              strokeWidth={activeIndex === i ? 2.5 : 1.5}
+                              dot={activeIndex === i ? { r: 3, fillOpacity: 1 } : false}
+                            />
+                          ))}
+                        </RadarChart>
                       </ChartContainer>
-                      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                        {hoveredDonut ? (
-                          <>
-                            <span className="text-xl font-bold leading-none tabular-nums">
-                              {hoveredDonut.value}
-                            </span>
-                            <span className="mt-0.5 max-w-[80px] text-[9px] leading-tight text-muted-foreground">
-                              {hoveredDonut.name}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-xl font-bold leading-none tabular-nums">
-                              {telemetry.total}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">venues</span>
-                          </>
-                        )}
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="flex h-[240px] items-center justify-center">
+                        <Skeleton className="h-36 w-36 rounded-full" />
                       </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
+                      {scoredResults.map((suburb, i) => (
+                        <div key={suburbLabel(suburb)} className="flex items-center gap-1">
+                          <span className="size-2 shrink-0 rounded-full" style={{ background: SUBURB_COLORS[i] }} />
+                          <span className="text-[9px] text-muted-foreground">#{i + 1} {suburbLabel(suburb)}</span>
+                        </div>
+                      ))}
                     </div>
-                  ) : (
-                    <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
-                      {boundary ? "No venues found" : "Loading…"}
-                    </div>
-                  )}
-                </section>
-              </div>
-            </ScrollArea>
+                  </section>
+
+                  <section>
+                    <Card className="h-fit shrink-0 border-border/70 bg-muted/20 shadow-none">
+                      <CardContent className="">
+                        <div className="grid grid-cols-2 gap-0.5">
+                          {[
+                            {
+                              label: "Population",
+                              value:
+                                activeSuburb.population != null
+                                  ? activeSuburb.population.toLocaleString()
+                                  : "N/A",
+                            },
+                            {
+                              label: "Wealth Decile",
+                              value:
+                                activeSuburb.seifaDecile != null
+                                  ? `${activeSuburb.seifaDecile} / 10`
+                                  : "N/A",
+                            },
+                            {
+                              label: "Competitors / 1k",
+                              value:
+                                activeSuburb.competitorsPerThousand != null
+                                  ? String(activeSuburb.competitorsPerThousand)
+                                  : "N/A",
+                            },
+                            {
+                              label: "Axel Score",
+                              value:
+                                activeSuburb.finalScore != null
+                                  ? `${(activeSuburb.finalScore * 100).toFixed(0)} / 100`
+                                  : "N/A",
+                            },
+                          ].map(({ label, value }) => (
+                            <div key={label} className="rounded-md border border-border/60 bg-background/60 px-2 py-1.5">
+                              <p className="truncate text-[8px] font-semibold tracking-wide text-muted-foreground uppercase">
+                                {label}
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold leading-none tabular-nums text-foreground">
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  <section>
+                    <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                      Venue Mix
+                    </p>
+                    {donutData.length > 0 ? (
+                      <Card className="h-fit shrink-0 border-border/70 bg-muted/20 shadow-none">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <ChartContainer config={donutChartConfig} className="h-[170px] w-[170px] shrink-0">
+                              <PieChart>
+                                <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+                                <Pie
+                                  data={donutData}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  innerRadius={46}
+                                  outerRadius={72}
+                                  paddingAngle={donutData.length > 1 ? 2 : 0}
+                                />
+                              </PieChart>
+                            </ChartContainer>
+
+                            <div className="flex flex-1 flex-col gap-2 min-w-0">
+                              {topVenueMix.map((category) => (
+                                <div key={category.name} className="flex items-center justify-between gap-2">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span className="size-2.5 rounded-full" style={{ background: category.fill }} />
+                                    <span className="truncate text-xs text-foreground">{category.name}</span>
+                                  </div>
+                                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                                    {category.value}
+                                  </span>
+                                </div>
+                              ))}
+                              <div className="mt-1 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                                Total venues: <span className="font-semibold text-foreground">{telemetry.total}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="flex h-[180px] items-center justify-center rounded-xl border border-border bg-muted/20 text-xs text-muted-foreground">
+                        {boundary ? "No venues found" : "Loading..."}
+                      </div>
+                    )}
+                  </section>
+                </div>
+            </div>
 
             {/* ── Column 2: Top-down map ───────────────────────────────────── */}
-            <div className="relative min-h-0 overflow-hidden border-r border-border/50">
+            <div ref={mapPanelRef} className="flex-1 min-w-0 relative rounded-xl overflow-hidden border border-border">
               {mapboxToken ? (
                 <Map
                   ref={mapRef}
@@ -791,7 +867,8 @@
             </div>
 
             {/* ── Column 3: AI briefing ─────────────────────────────────────── */}
-            <div className="flex min-h-0 flex-col">
+            <div className="w-[350px] flex-shrink-0 min-h-0 flex flex-col gap-4 pl-2">
+              <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card overflow-hidden">
               <div className="shrink-0 border-b border-border/50 px-5 py-3">
                 <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
                   AI Analysis
@@ -805,12 +882,12 @@
                     Inquiry
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {draft.businessType} · {draft.spendingBracket} · {draft.targetAudience}
+                      {draft.businessType} · {draft.spendingBracket}
                   </p>
                 </div>
               )}
 
-              <ScrollArea className="min-h-0 flex-1">
+                <ScrollArea className="min-h-0 flex-1">
                 <div className="px-5 py-4">
                   {briefingLoading ? (
                     <div className="space-y-2.5">
@@ -824,12 +901,13 @@
                       <Skeleton className="h-3.5 w-full" />
                     </div>
                   ) : (
-                    <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                      {aiSummary}
-                    </p>
+                    <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-ul:my-2 prose-ol:my-2 dark:prose-invert [&_*]:break-words">
+                      <ReactMarkdown>{aiSummary}</ReactMarkdown>
+                    </div>
                   )}
                 </div>
-              </ScrollArea>
+                </ScrollArea>
+              </div>
             </div>
           </div>
         </div>

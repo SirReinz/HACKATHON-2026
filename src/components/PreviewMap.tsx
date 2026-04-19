@@ -216,6 +216,7 @@ function apply3DBuildings(map: MapboxMap, isDark: boolean) {
 export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
   const mapRef = React.useRef<MapRef | null>(null)
   const orbitFrameRef = React.useRef<number | null>(null)
+  const [mapLoaded, setMapLoaded] = React.useState(false)
   const [maskFeature, setMaskFeature] = React.useState<Feature<Polygon> | null>(null)
   const { theme } = useTheme()
 
@@ -250,6 +251,8 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
   }, [stopOrbit])
 
   React.useEffect(() => {
+    if (!mapLoaded) return
+
     const map = mapRef.current?.getMap()
     if (!map) return
 
@@ -288,6 +291,24 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
       setMaskFeature(buildMaskFeature(boundary))
 
       if (boundary) {
+        const reapplyMask = () => {
+          if (cancelled) return
+          setMaskFeature(buildMaskFeature(boundary))
+        }
+
+        const onMoveEnd = () => {
+          map.off("moveend", onMoveEnd)
+          window.clearTimeout(maskRetryTimeout)
+          reapplyMask()
+        }
+
+        map.on("moveend", onMoveEnd)
+
+        const maskRetryTimeout = window.setTimeout(() => {
+          map.off("moveend", onMoveEnd)
+          reapplyMask()
+        }, 450)
+
         const bbox = boundaryToBBox(boundary)
         map.fitBounds(
           [
@@ -321,7 +342,7 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
     return () => {
       cancelled = true
     }
-  }, [hoveredInquiry, startOrbit, stopOrbit])
+  }, [hoveredInquiry, mapLoaded, startOrbit, stopOrbit])
 
   React.useEffect(() => {
     return () => {
@@ -336,6 +357,19 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
     const ensure3D = () => {
       if (!map.getStyle()) return
       apply3DBuildings(map, isDark)
+
+      // Re-emit existing mask data when style reloads so the dim overlay is re-mounted.
+      setMaskFeature((prev) => {
+        if (!prev) return prev
+
+        return {
+          ...prev,
+          geometry: {
+            ...prev.geometry,
+            coordinates: prev.geometry.coordinates.map((ring) => [...ring]),
+          },
+        }
+      })
     }
 
     ensure3D()
@@ -354,6 +388,7 @@ export function PreviewMap({ hoveredInquiry }: PreviewMapProps) {
     <div className="pointer-events-none h-full w-full overflow-hidden">
       <Map
         ref={mapRef}
+        onLoad={() => setMapLoaded(true)}
         mapboxAccessToken={mapboxToken}
         initialViewState={{ longitude: AUSTRALIA_IDLE_CENTER[0], latitude: AUSTRALIA_IDLE_CENTER[1], zoom: 3.5 }}
         mapStyle={mapStyle}

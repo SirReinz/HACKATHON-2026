@@ -73,39 +73,9 @@ export function LandingPage() {
             <div className="space-y-3">
               <h1 className="text-3xl font-semibold sm:text-4xl">Welcome To Axel</h1>
               <p className="text-sm text-muted-foreground">Where are you headed?</p>
-              <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start rounded-2xl">
-                    Select a region
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-                  <Command>
-                    <CommandInput placeholder="Search region..." />
-                    <CommandList>
-                      <CommandEmpty>No regions found.</CommandEmpty>
-                      <CommandGroup heading="Regions">
-                        {regions.map((region) => (
-                          <CommandItem
-                            key={region.value}
-                            value={region.label}
-                            onSelect={() => {
-                              navigate("/explore", {
-                                state: {
-                                  region: region.value,
-                                },
-                              })
-                              setOpen(false)
-                            }}
-                          >
-                            {region.label}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                <Button variant="outline" className="justify-start rounded-2xl" onClick={() => navigate("/dashboard")}>
+                Let's explore!
+                </Button>
             </div>
 
             <div className="flex items-start justify-end">
