@@ -72,6 +72,30 @@
     geojson?: { type?: string; coordinates?: unknown }
   }
 
+  type CachedVenueMixItem = {
+    name: string
+    value: number
+  }
+
+  type CachedAnalysisEntry = {
+    population?: number | null
+    competitorsPerThousand?: number | null
+    seifaDecile?: number | null
+    finalScore?: number | null
+    venueMix?: CachedVenueMixItem[]
+    radarData?: Array<Record<string, string | number>>
+    aiBriefing?: string
+    boundary_geojson?: {
+      type?: "Polygon" | "MultiPolygon"
+      coordinates?: unknown
+    } | null
+  }
+
+  type InquiryAnalysisData = CachedAnalysisEntry & {
+    active_suburb?: string
+    bySuburb?: Record<string, CachedAnalysisEntry>
+  }
+
   export type DetailsPageProps = {
     open: boolean
     onClose: () => void
@@ -79,6 +103,7 @@
     initialActiveIndex: number
     countsBySuburb: Record<string, number>
     initialAiSummary: string
+    cachedData?: InquiryAnalysisData | null
   }
 
   // ── Map layer configs ─────────────────────────────────────────────────────────
@@ -128,6 +153,10 @@
 
   function suburbLabel(s: ResultSuburb) {
     return s.displayName ?? s.name
+  }
+
+  function normalizeName(value: string) {
+    return value.trim().toLowerCase()
   }
 
   async function fetchNominatimBoundary(
@@ -183,6 +212,42 @@
       if (isFinite(n)) return n
     }
     return null
+  }
+
+  function toFeatureFromGeometry(
+    geometry: CachedAnalysisEntry["boundary_geojson"]
+  ): Feature<Polygon | MultiPolygon> | null {
+    if (!geometry?.type) return null
+    if (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon") return null
+
+    return {
+      type: "Feature",
+      geometry: {
+        type: geometry.type,
+        coordinates: geometry.coordinates as Polygon["coordinates"] | MultiPolygon["coordinates"],
+      } as Polygon | MultiPolygon,
+      properties: {},
+    }
+  }
+
+  function getCachedAnalysisForSuburb(
+    analysisData: InquiryAnalysisData | null | undefined,
+    suburbName: string
+  ): CachedAnalysisEntry | null {
+    if (!analysisData) return null
+
+    const bySuburb = analysisData.bySuburb
+    if (bySuburb && typeof bySuburb === "object") {
+      const direct = bySuburb[suburbName]
+      if (direct) return direct
+
+      const normalizedTarget = normalizeName(suburbName)
+      for (const [key, value] of Object.entries(bySuburb)) {
+        if (normalizeName(key) === normalizedTarget) return value
+      }
+    }
+
+    return analysisData
   }
 
   function toFeatureCollection(rows: PlaceRow[]): FeatureCollection<Point, PlaceProperties> {
@@ -323,6 +388,7 @@
     initialActiveIndex,
     countsBySuburb: externalCounts,
     initialAiSummary,
+    cachedData = null,
   }: DetailsPageProps) {
     const mapRef = React.useRef<MapRef | null>(null)
     const mapPanelRef = React.useRef<HTMLDivElement | null>(null)
@@ -339,11 +405,18 @@
     const [aiSummary, setAiSummary] = React.useState(initialAiSummary)
     const [briefingLoading, setBriefingLoading] = React.useState(false)
     const [localCounts, setLocalCounts] = React.useState<Record<string, number>>(externalCounts)
+    const [cachedRadarData, setCachedRadarData] = React.useState<Array<Record<string, string | number>> | null>(null)
+    const [cachedVenueMix, setCachedVenueMix] = React.useState<CachedVenueMixItem[] | null>(null)
 
     const runIdRef = React.useRef(0)
     const needsAiRef = React.useRef(false)
 
     const activeSuburb = scoredResults[activeIndex] ?? scoredResults[0]
+    const activeLabel = suburbLabel(activeSuburb)
+    const cachedActiveAnalysis = React.useMemo(
+      () => getCachedAnalysisForSuburb(cachedData, activeLabel),
+      [cachedData, activeLabel]
+    )
     const isDark =
       theme === "dark" ||
       (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -353,15 +426,21 @@
 
     const telemetry = React.useMemo(() => aggregateByCategory(venueData), [venueData])
 
-    const donutData = React.useMemo(
-      () =>
-        Object.entries(telemetry.byCategory).map(([name, value]) => ({
+    const donutData = React.useMemo(() => {
+      if (cachedVenueMix?.length) {
+        return cachedVenueMix.map(({ name, value }) => ({
           name,
           value,
           fill: CATEGORY_COLORS[name] ?? "#888780",
-        })),
-      [telemetry.byCategory]
-    )
+        }))
+      }
+
+      return Object.entries(telemetry.byCategory).map(([name, value]) => ({
+        name,
+        value,
+        fill: CATEGORY_COLORS[name] ?? "#888780",
+      }))
+    }, [cachedVenueMix, telemetry.byCategory])
 
     const allCounts = React.useMemo(
       () => ({ ...externalCounts, ...localCounts }),
@@ -369,8 +448,11 @@
     )
 
     const radarData = React.useMemo(
-      () => buildRadarData(scoredResults, allCounts, draft?.spendingBracket),
-      [scoredResults, allCounts, draft?.spendingBracket]
+      () =>
+        cachedRadarData?.length
+          ? cachedRadarData
+          : buildRadarData(scoredResults, allCounts, draft?.spendingBracket),
+      [cachedRadarData, scoredResults, allCounts, draft?.spendingBracket]
     )
 
     const boundaryGeoJSON = React.useMemo(
@@ -391,12 +473,16 @@
       if (open) {
         setAiSummary(initialAiSummary || "Analyzing suburb…")
         needsAiRef.current = false
+        setCachedRadarData(null)
+        setCachedVenueMix(null)
         document.body.style.overflow = "hidden"
       } else {
         setMapLoaded(false)
         setBoundary(null)
         setVenueData({ type: "FeatureCollection", features: [] })
         setBriefingLoading(false)
+        setCachedRadarData(null)
+        setCachedVenueMix(null)
         document.body.style.overflow = ""
       }
       return () => {
@@ -477,9 +563,45 @@
       const runId = ++runIdRef.current
 
       const load = async () => {
-        const label = suburbLabel(activeSuburb)
+        const label = activeLabel
+        const cached = cachedActiveAnalysis
 
-        const foundBoundary = await fetchNominatimBoundary(label)
+        if (cachedData) {
+          setCachedRadarData(Array.isArray(cached?.radarData) ? cached.radarData : [])
+          setCachedVenueMix(Array.isArray(cached?.venueMix) ? cached.venueMix : [])
+          setAiSummary(cached?.aiBriefing || initialAiSummary || "Cached analysis loaded.")
+
+          const cachedBoundary = toFeatureFromGeometry(cached?.boundary_geojson ?? null)
+          setBoundary(cachedBoundary)
+
+          const totalFromVenueMix = Array.isArray(cached?.venueMix)
+            ? cached.venueMix.reduce((sum, item) => sum + (item.value ?? 0), 0)
+            : 0
+          setLocalCounts((prev) => ({ ...prev, [label]: totalFromVenueMix }))
+          setBriefingLoading(false)
+
+          return
+        }
+
+        if (cached?.aiBriefing) {
+          setAiSummary(cached.aiBriefing)
+        }
+
+        if (cached?.venueMix?.length) {
+          const cachedTotal = cached.venueMix.reduce((sum, item) => sum + (item.value ?? 0), 0)
+          setLocalCounts((prev) => ({ ...prev, [label]: cachedTotal }))
+        }
+
+        const cachedBoundary = toFeatureFromGeometry(cached?.boundary_geojson ?? null)
+        if (cachedBoundary) {
+          setBoundary(cachedBoundary)
+        }
+
+        if (cachedBoundary && cached?.venueMix?.length && cached?.aiBriefing) {
+          return
+        }
+
+        const foundBoundary = cachedBoundary ?? (await fetchNominatimBoundary(label))
         if (cancelled || runIdRef.current !== runId) return
         setBoundary(foundBoundary)
 
@@ -556,7 +678,7 @@
       return () => {
         cancelled = true
       }
-    }, [open, activeIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [open, activeIndex, cachedData, cachedActiveAnalysis, activeLabel, initialAiSummary]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const topVenueMix = [...donutData].sort((a, b) => b.value - a.value).slice(0, 5)
 
