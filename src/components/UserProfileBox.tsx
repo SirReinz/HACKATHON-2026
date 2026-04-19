@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -187,6 +188,9 @@ export function UserProfileBox() {
           <div className="col-span-2 min-h-0">
             <DialogHeader className="border-b border-border/60 p-8 pb-5">
               <DialogTitle>Profile Settings</DialogTitle>
+              <DialogDescription className="sr-only">
+                Update your profile details, including name, company, and role.
+              </DialogDescription>
             </DialogHeader>
 
             <ScrollArea className="h-[56svh] lg:h-[62svh]">

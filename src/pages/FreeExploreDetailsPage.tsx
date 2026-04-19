@@ -22,8 +22,8 @@ function buildFreeExploreResult(state: FreeExploreDetailsState): ResultSuburb {
     fallbackCenter: [151.2093, -33.8688],
     finalScore:
       state.axelScore !== null && state.axelScore !== undefined
-        ? Math.max(0, Math.min(1, state.axelScore / 100))
-        : 0.68,
+        ? Math.max(0, Math.min(100, state.axelScore))
+        : 68,
     competitorsPerThousand:
       state.venuePerThousand !== null && state.venuePerThousand !== undefined
         ? state.venuePerThousand
@@ -79,6 +79,7 @@ export function FreeExploreDetailsPage() {
       initialActiveIndex={0}
       countsBySuburb={countsBySuburb}
       initialAiSummary={state.briefing ?? `Analyzing ${areaLabel}...`}
+      useInquiryStyleSidebar={true}
     />
   )
 }

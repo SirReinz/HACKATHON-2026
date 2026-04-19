@@ -82,6 +82,8 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
 type FilterPanelProps = {
   selectedCategories: string[]
   onChangeCategories: (categories: string[]) => void
+  selectedBusinessType?: string
+  onChangeBusinessType?: (businessType: string) => void
   onSearchArea: () => void
   onClearCategories?: () => void
   onSelectAllCategories?: () => void
@@ -99,6 +101,8 @@ type FilterPanelProps = {
 export function FilterPanel({
   selectedCategories,
   onChangeCategories,
+  selectedBusinessType,
+  onChangeBusinessType,
   onSearchArea,
   onClearCategories,
   onSelectAllCategories,
@@ -165,6 +169,45 @@ export function FilterPanel({
                             strokeWidth={2}
                           />
                         )}
+                        <span>{category}</span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+
+        {/* ── Business type selector for competitor benchmark ───────────── */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-full justify-between rounded-2xl">
+              {selectedBusinessType ? `Business Type: ${selectedBusinessType}` : "Select Business Type"}
+              <ChevronDown className="size-4 opacity-70" />
+            </Button>
+          </PopoverTrigger>
+
+          <PopoverContent align="start" className="w-[min(360px,90vw)] p-0">
+            <Command>
+              <CommandInput placeholder="Search business type..." />
+              <CommandList>
+                <CommandEmpty>No business type found.</CommandEmpty>
+                <CommandGroup heading="Business Type">
+                  {PLACE_CATEGORY_OPTIONS.map((category) => {
+                    const selected = selectedBusinessType === category
+                    const Icon = CATEGORY_ICONS[category]
+                    const color = categoryColors?.[category] ?? "#64748b"
+
+                    return (
+                      <CommandItem
+                        key={`business-${category}`}
+                        value={category}
+                        onSelect={() => onChangeBusinessType?.(category)}
+                        className="gap-2"
+                      >
+                        <Check className={`size-4 shrink-0 ${selected ? "opacity-100" : "opacity-0"}`} />
+                        {Icon ? <Icon className="size-4 shrink-0" style={{ color }} strokeWidth={2} /> : null}
                         <span>{category}</span>
                       </CommandItem>
                     )

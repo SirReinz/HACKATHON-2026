@@ -511,7 +511,7 @@ export function DashboardPage() {
                                       label: "Axel Score",
                                       value:
                                         typeof hoveredAnalysis.finalScore === "number"
-                                          ? `${(hoveredAnalysis.finalScore * 100).toFixed(0)} / 100`
+                                          ? `${(hoveredAnalysis.finalScore).toFixed(0)} / 100`
                                           : "N/A",
                                     },
                                     {

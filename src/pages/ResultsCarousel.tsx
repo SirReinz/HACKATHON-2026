@@ -7,17 +7,14 @@ import type { LayerProps, MapRef } from "react-map-gl/mapbox"
 import Map, { NavigationControl, Source, Layer } from "react-map-gl/mapbox"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
-import ReactMarkdown, { type Components } from "react-markdown"
+import { type Components } from "react-markdown"
 
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { InquirySidebarStack } from "@/components/InquirySidebarStack"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Skeleton } from "@/components/ui/skeleton"
 import { useInquiryFlow } from "@/context/InquiryFlowContext"
 import { fetchPlacesInPolygonPaginated, type PlaceRow } from "@/lib/fetchPlacesPaginated"
-import { CATEGORY_ICON_MAP } from "@/lib/selectionIcons"
 import { supabase } from "@/lib/supabase"
 import { DetailsPage } from "@/pages/DetailsPage"
 
@@ -719,7 +716,7 @@ export function ResultsCarouselPage() {
     if (!draft) {
       if (exitToDashboardRef.current) return
       if (inquiryId || restoringInquiry) return
-      navigate("/inquiry/new", { replace: true })
+      navigate("/dashboard", { replace: true })
       return
     }
     exitToDashboardRef.current = false
@@ -1289,162 +1286,22 @@ export function ResultsCarouselPage() {
 
       {/* Right-side desktop stack: AI Overview + Current Selection */}
       <div className="absolute top-24 right-4 bottom-4 z-50 hidden w-[min(430px,calc(100%-2rem))] min-h-0 flex-col gap-4 md:flex md:right-6">
-        <Card className={`min-h-0 flex-1 flex flex-col ${cardClassName}`}>
-          <CardHeader className="shrink-0">
-            <CardTitle>AI Overview &amp; Description</CardTitle>
-          </CardHeader>
-          <CardContent className="min-h-0 flex flex-1 flex-col">
-            <p className="mb-3 shrink-0 text-xs font-medium tracking-wide text-primary uppercase">
-              {hasSavedInquiry ? "READY: SAVED INQUIRY" : `TARGETING: ${suburbLabel(activeSuburb)}`}
-            </p>
-            {briefingLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-11/12" />
-                <Skeleton className="h-4 w-4/5" />
-              </div>
-            ) : (
-              <ScrollArea className="min-h-0 flex-1 pr-3">
-                <div className="space-y-3 text-foreground/90">
-                  <ReactMarkdown components={markdownComponents}>{aiSummary}</ReactMarkdown>
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className={`flex-none ${cardClassName}`}>
-          <CardHeader>
-            <CardTitle>Current Selection</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <ScrollArea>
-              <div className="space-y-3 pr-1">
-
-                {/* 2×2 stat chips */}
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: "Active Area", value: suburbLabel(activeSuburb) },
-                    { label: "Venue Count", value: telemetry.total },
-                    {
-                      label: "Wealth Decile",
-                      value:
-                        activeSuburb.seifaDecile != null
-                          ? `${activeSuburb.seifaDecile} / 10`
-                          : "N/A",
-                    },
-                    {
-                      label: "Competitors / 1k",
-                      value:
-                        activeSuburb.competitorsPerThousand != null
-                          ? activeSuburb.competitorsPerThousand
-                          : "N/A",
-                    },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="rounded-xl bg-muted/40 p-2.5">
-                      <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                        {label}
-                      </p>
-                      <p className="truncate text-[15px] font-medium text-foreground">{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Axel score row */}
-                <div className="rounded-xl bg-muted/40 p-2.5">
-                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                    Axel Score
-                  </p>
-                  {activeSuburb.finalScore != null ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1 w-36 overflow-hidden rounded-full bg-border">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${activeSuburb.finalScore}%` }}
-                          />
-                        </div>
-                        <span className="text-[15px] font-medium text-foreground tabular-nums">
-                          {activeSuburb.finalScore} / 100
-                        </span>
-                      </div>
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${
-                          activeSuburb.finalScore >= 75
-                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                            : activeSuburb.finalScore >= 50
-                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                        }`}
-                      >
-                        {activeSuburb.finalScore >= 75
-                          ? "Strong"
-                          : activeSuburb.finalScore >= 50
-                          ? "Moderate"
-                          : "Weak"}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">N/A</span>
-                  )}
-                  {fetchMessage ? (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">{fetchMessage}</p>
-                  ) : null}
-                </div>
-
-                {/* Venue mix */}
-                {Object.keys(telemetry.byCategory).length > 0 && (
-                  <div className="border-t border-border/40 pt-3">
-                    <p className="mb-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                      Venue Mix
-                    </p>
-                    {(() => {
-                      const entries = Object.entries(
-                        telemetry.byCategory as Record<string, number>
-                      ).sort((a, b) => b[1] - a[1])
-                      const maxCount = Math.max(...entries.map(([, c]) => c))
-                      return entries.map(([name, count]) => (
-                        <div
-                          key={name}
-                          className="grid grid-cols-[140px_1fr_auto_auto] items-center gap-2 mb-1.5"
-                        >
-                          <span className="truncate text-xs text-muted-foreground">{name}</span>
-                          <div className="h-1 overflow-hidden rounded-full bg-border/50">
-                            <div
-                              className="h-full rounded-full opacity-85"
-                              style={{
-                                backgroundColor: CATEGORY_ICON_MAP[name]?.color ?? "#888",
-                                width: `${((count / maxCount) * 100).toFixed(0)}%`,
-                              }}
-                            />
-                          </div>
-                          <span className="text-right text-xs font-medium tabular-nums text-foreground">
-                            {count}
-                          </span>
-                          <span className="w-7 text-right text-[11px] tabular-nums text-muted-foreground">
-                            {Math.round((count / telemetry.total) * 100)}%
-                          </span>
-                        </div>
-                      ))
-                    })()}
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button variant="outline" className="w-full rounded-full" onClick={handleFreeView}>
-                Free View
-              </Button>
-              <Button
-                className="w-full rounded-full bg-primary text-primary-foreground"
-                onClick={handleDeepDive}
-              >
-                Deep Dive
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <InquirySidebarStack
+          aiSummary={aiSummary}
+          briefingLoading={briefingLoading}
+          aiStatus={hasSavedInquiry ? "READY: SAVED INQUIRY" : `TARGETING: ${suburbLabel(activeSuburb)}`}
+          areaLabel={suburbLabel(activeSuburb)}
+          venueCount={telemetry.total}
+          wealthDecile={activeSuburb.seifaDecile}
+          competitorsPerThousand={activeSuburb.competitorsPerThousand}
+          axelScore={activeSuburb.finalScore ?? null}
+          venueByCategory={telemetry.byCategory}
+          fetchMessage={fetchMessage}
+          onFreeView={handleFreeView}
+          onDeepDive={handleDeepDive}
+          markdownComponents={markdownComponents}
+          cardClassName={cardClassName}
+        />
       </div>
 
       <DetailsPage

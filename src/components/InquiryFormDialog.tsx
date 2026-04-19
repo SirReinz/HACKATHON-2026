@@ -16,6 +16,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -93,9 +94,9 @@ export function InquiryFormDialog({ open, onOpenChange }: InquiryFormDialogProps
         <div className="max-h-[90svh] overflow-y-auto">
           <DialogHeader className="border-b border-border/50 px-6 py-5">
             <DialogTitle className="text-2xl">New Location Inquiry</DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription className="text-sm text-muted-foreground">
               Define your business profile so AXEL can tailor each suburb recommendation.
-            </p>
+            </DialogDescription>
           </DialogHeader>
 
           <div className="px-6 py-5">

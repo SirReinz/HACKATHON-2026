@@ -83,7 +83,6 @@ type AreaInsights = {
   population: number | null
   wealthDecile: number | null
   venuePerThousand: number | null
-  axelScore: number | null
 }
 
 const markdownComponents: Components = {
@@ -110,6 +109,7 @@ const markdownComponents: Components = {
 // ---------------------------------------------------------------------------
 
 const defaultCategories = ["Dining and Drinking", "Health and Medicine", "Retail"]
+const defaultBusinessType = "Dining and Drinking"
 
 const defaultSelection: ClusterSelection = {
   type:  "none",
@@ -362,6 +362,7 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
 
   // --- state ----------------------------------------------------------------
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>(defaultCategories)
+  const [selectedBusinessType, setSelectedBusinessType] = React.useState<string>(defaultBusinessType)
   const [queryGeometry, setQueryGeometry] = React.useState<Polygon | MultiPolygon | null>(null)
   const [queryTrigger, setQueryTrigger] = React.useState(0)
   const [highlightBoundary, setHighlightBoundary] = React.useState<Feature<Polygon | MultiPolygon> | null>(null)
@@ -376,6 +377,13 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
   const [searchLoading,     setSearchLoading]      = React.useState(false)
   const [searchOpen,        setSearchOpen]         = React.useState(false)
   const [areaInsights, setAreaInsights] = React.useState<AreaInsights | null>(null)
+
+  const handleBusinessTypeChange = React.useCallback((businessType: string) => {
+    setSelectedBusinessType(businessType)
+    setSelectedCategories((previous) =>
+      previous.includes(businessType) ? previous : [...previous, businessType]
+    )
+  }, [])
 
   // --- data -----------------------------------------------------------------
   const { data, loading, error, telemetry } = useSupabasePlaces(
@@ -456,7 +464,7 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
 
       const { data, error } = await supabase
         .from("axel_master")
-        .select("display_name, sa2_name, population_2025, seifa_decile, pois_per_1000_people, seifa_score")
+        .select("display_name, sa2_name, population_2025, seifa_decile")
         .or(
           `display_name.ilike.${escaped}%,sa2_name.ilike.${escaped}%,display_name.ilike.%${escaped}%,sa2_name.ilike.%${escaped}%`,
         )
@@ -488,17 +496,11 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
 
       const population = toNumber(matched.population_2025)
       const wealthDecile = toNumber(matched.seifa_decile)
-      const venuePerThousand = toNumber(matched.pois_per_1000_people)
-
-      const rawScore = toNumber(matched.seifa_score)
-      const axelScore =
-        rawScore === null ? null : rawScore <= 1 ? Number((rawScore * 100).toFixed(0)) : Number(rawScore.toFixed(0))
 
       setAreaInsights({
         population,
         wealthDecile,
-        venuePerThousand,
-        axelScore,
+        venuePerThousand: null,
       })
     }
 
@@ -508,6 +510,31 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
       cancelled = true
     }
   }, [activeAreaLabel])
+
+  const selectedBusinessCount = telemetry.byCategory[selectedBusinessType] ?? 0
+  const competitorsPerThousandForBusiness = React.useMemo(() => {
+    const population = areaInsights?.population
+    if (!population || population <= 0) return null
+    return Number(((selectedBusinessCount / population) * 1000).toFixed(2))
+  }, [areaInsights?.population, selectedBusinessCount])
+
+  const derivedAxelScore = React.useMemo(() => {
+    const population = areaInsights?.population
+    const wealthDecile = areaInsights?.wealthDecile
+    const competitors = competitorsPerThousandForBusiness
+
+    if (population === null || population === undefined || wealthDecile === null || wealthDecile === undefined) {
+      return null
+    }
+
+    const clamp = (value: number) => Math.max(0, Math.min(100, value))
+
+    const wealthScore = clamp((wealthDecile / 10) * 100)
+    const competitionScore = clamp(100 - (Math.max(0, competitors ?? 0) * 18))
+    const populationScore = clamp(((Math.log10(Math.max(population, 1000)) - 3.5) / 2) * 100)
+
+    return Math.round(wealthScore * 0.45 + competitionScore * 0.35 + populationScore * 0.2)
+  }, [areaInsights?.population, areaInsights?.wealthDecile, competitorsPerThousandForBusiness])
 
   // Boundary + style tweaks
   React.useEffect(() => {
@@ -699,11 +726,11 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
         venueCount: telemetry.total,
         population: areaInsights?.population,
         wealthDecile: areaInsights?.wealthDecile,
-        venuePerThousand: areaInsights?.venuePerThousand,
-        axelScore: areaInsights?.axelScore,
+        venuePerThousand: competitorsPerThousandForBusiness,
+        axelScore: derivedAxelScore,
       },
     })
-  }, [activeAreaLabel, areaInsights, briefing, navigate, telemetry.total])
+  }, [activeAreaLabel, areaInsights, briefing, competitorsPerThousandForBusiness, derivedAxelScore, navigate, telemetry.total])
 
   const handleMapClick = React.useCallback(
     (event: MapMouseEvent) => {
@@ -838,6 +865,8 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
         <FilterPanel
           selectedCategories={selectedCategories}
           onChangeCategories={setSelectedCategories}
+          selectedBusinessType={selectedBusinessType}
+          onChangeBusinessType={handleBusinessTypeChange}
           onSelectAllCategories={() => setSelectedCategories([...PLACE_CATEGORY_OPTIONS])}
           onClearCategories={() => setSelectedCategories([])}
           onSearchArea={handleSearchAreaClick}
@@ -850,12 +879,12 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
 
       {/* Right-side desktop stack: AI Overview + Current Selection */}
       <div className="absolute top-22 right-4 bottom-4 z-40 hidden w-[min(430px,calc(100%-2rem))] min-h-0 flex-col gap-4 md:flex lg:top-24 lg:right-6 lg:bottom-6">
-        <Card className={cardClassName}>
-          <CardHeader>
+        <Card className={`min-h-0 flex-1 flex flex-col ${cardClassName}`}>
+          <CardHeader className="shrink-0">
             <CardTitle>AI Overview &amp; Description</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="mb-3 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
+          <CardContent className="min-h-0 flex flex-1 flex-col">
+            <p className="mb-3 shrink-0 text-xs font-medium tracking-wide text-primary uppercase">{aiStatus}</p>
             {isBriefingLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-4 w-full" />
@@ -863,8 +892,8 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
                 <Skeleton className="h-4 w-4/5" />
               </div>
             ) : (
-              <ScrollArea className="h-44 pr-3">
-                <div className="space-y-3">
+              <ScrollArea className="min-h-0 flex-1 pr-3">
+                <div className="space-y-3 text-foreground/90">
                   <ReactMarkdown components={markdownComponents}>{briefing}</ReactMarkdown>
                 </div>
               </ScrollArea>
@@ -872,91 +901,113 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
           </CardContent>
         </Card>
 
-        <Card className={`min-h-0 flex-1 ${cardClassName}`}>
+        <Card className={`flex-none ${cardClassName}`}>
           <CardHeader>
             <CardTitle>Current Selection</CardTitle>
           </CardHeader>
-          <CardContent className="min-h-0 flex flex-1 flex-col gap-3 text-sm">
-            <ScrollArea className="min-h-0 flex-1 pr-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex h-full flex-col space-y-2 border-r border-border/60 pr-3">
-              {/* Icon + label header */}
-              <div className="flex items-center gap-2">
-                <selection.icon
-                  size={18}
-                  style={{ color: selection.color }}
-                  strokeWidth={2}
-                />
-                <span className="font-medium" style={{ color: selection.color }}>
-                  {selection.label}
-                </span>
-              </div>
-
-              <p>
-                <span className="text-muted-foreground">Active Area:</span>{" "}
-                {activeAreaLabel ?? "No active search area"}
-              </p>
-              <p>
-                    <span className="text-muted-foreground">Selected Count:</span> {selection.count}
-                </p>
-              <p>
-                <span className="text-muted-foreground">Venue Count:</span> {telemetry.total}
-              </p>
-
-              {/* Category breakdown with icons */}
-              <div className="space-y-1 pt-1">
-                {Object.entries(telemetry.byCategory as Record<string, number>).map(([name, count]) => {
-                  const meta = CATEGORY_ICON_MAP[name]
-                  const Icon = meta?.icon
-                  return (
-                    <div key={name} className="grid grid-cols-[1fr_auto] items-center gap-3">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {Icon && (
-                          <Icon size={13} style={{ color: meta.color }} strokeWidth={2} />
-                        )}
-                        <span className="min-w-0 whitespace-normal wrap-break-word leading-snug text-muted-foreground">{name}:</span>
-                      </div>
-                      <span className="justify-self-end tabular-nums">{count}</span>
+          <CardContent className="flex flex-col gap-3">
+            <ScrollArea>
+              <div className="space-y-3 pr-1">
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "Active Area", value: activeAreaLabel ?? "No active search area" },
+                    { label: "Venue Count", value: telemetry.total },
+                    {
+                      label: "Wealth Decile",
+                      value:
+                        areaInsights?.wealthDecile !== null && areaInsights?.wealthDecile !== undefined
+                          ? `${areaInsights.wealthDecile} / 10`
+                          : "N/A",
+                    },
+                    {
+                      label: "Competitors / 1k",
+                      value:
+                        competitorsPerThousandForBusiness !== null && competitorsPerThousandForBusiness !== undefined
+                          ? competitorsPerThousandForBusiness
+                          : "N/A",
+                    },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="rounded-xl bg-muted/40 p-2.5">
+                      <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                        {label}
+                      </p>
+                      <p className="truncate text-[15px] font-medium text-foreground">{value}</p>
                     </div>
-                  )
-                })}
-              </div>
-
-              </div>
-
-              <div className="flex h-full flex-col pl-1">
-                <div className="space-y-2">
-                  <p>
-                    <span className="text-muted-foreground">Population:</span>{" "}
-                    {areaInsights?.population !== null && areaInsights?.population !== undefined
-                      ? areaInsights.population.toLocaleString()
-                      : "N/A"}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Wealth Decile:</span>{" "}
-                    {areaInsights?.wealthDecile !== null && areaInsights?.wealthDecile !== undefined
-                      ? `${areaInsights.wealthDecile} / 10`
-                      : "N/A"}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Venue / 1k residents:</span>{" "}
-                    {areaInsights?.venuePerThousand !== null && areaInsights?.venuePerThousand !== undefined
-                      ? areaInsights.venuePerThousand
-                      : "N/A"}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Axel Score:</span>{" "}
-                    {areaInsights?.axelScore !== null && areaInsights?.axelScore !== undefined
-                      ? `${areaInsights.axelScore} / 100`
-                      : "N/A"}
-                  </p>
+                  ))}
                 </div>
 
+                <div className="rounded-xl bg-muted/40 p-2.5">
+                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                    Axel Score
+                  </p>
+                  {derivedAxelScore !== null && derivedAxelScore !== undefined ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1 w-36 overflow-hidden rounded-full bg-border">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${derivedAxelScore}%` }}
+                          />
+                        </div>
+                        <span className="text-[15px] font-medium text-foreground tabular-nums">
+                          {derivedAxelScore} / 100
+                        </span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${
+                          derivedAxelScore >= 75
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            : derivedAxelScore >= 50
+                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                        }`}
+                      >
+                        {derivedAxelScore >= 75 ? "Strong" : derivedAxelScore >= 50 ? "Moderate" : "Weak"}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">N/A</span>
+                  )}
+                </div>
+
+                {Object.keys(telemetry.byCategory).length > 0 && (
+                  <div className="border-t border-border/40 pt-3">
+                    <p className="mb-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                      Venue Mix
+                    </p>
+                    {(() => {
+                      const entries = Object.entries(telemetry.byCategory as Record<string, number>).sort((a, b) => b[1] - a[1])
+                      const maxCount = Math.max(...entries.map(([, c]) => c))
+                      return entries.map(([name, count]) => (
+                        <div
+                          key={name}
+                          className="grid grid-cols-[140px_1fr_auto_auto] items-center gap-2 mb-1.5"
+                        >
+                          <span className="truncate text-xs text-muted-foreground">{name}</span>
+                          <div className="h-1 overflow-hidden rounded-full bg-border/50">
+                            <div
+                              className="h-full rounded-full opacity-85"
+                              style={{
+                                backgroundColor: CATEGORY_ICON_MAP[name]?.color ?? "#888",
+                                width: `${((count / maxCount) * 100).toFixed(0)}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-right text-xs font-medium tabular-nums text-foreground">
+                            {count}
+                          </span>
+                          <span className="w-7 text-right text-[11px] tabular-nums text-muted-foreground">
+                            {Math.round((count / telemetry.total) * 100)}%
+                          </span>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                )}
               </div>
-            </div>
             </ScrollArea>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>
                 Clear Selection
               </Button>
@@ -994,6 +1045,8 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
                   compact
                   selectedCategories={selectedCategories}
                   onChangeCategories={setSelectedCategories}
+                  selectedBusinessType={selectedBusinessType}
+                  onChangeBusinessType={handleBusinessTypeChange}
                   onSelectAllCategories={() => setSelectedCategories([...PLACE_CATEGORY_OPTIONS])}
                   onClearCategories={() => setSelectedCategories([])}
                   onSearchArea={handleSearchAreaClick}
@@ -1067,14 +1120,14 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
                 </p>
                 <p>
                   <span className="text-muted-foreground">Venue / 1k residents:</span>{" "}
-                  {areaInsights?.venuePerThousand !== null && areaInsights?.venuePerThousand !== undefined
-                    ? areaInsights.venuePerThousand
+                  {competitorsPerThousandForBusiness !== null && competitorsPerThousandForBusiness !== undefined
+                    ? competitorsPerThousandForBusiness
                     : "N/A"}
                 </p>
                 <p>
                   <span className="text-muted-foreground">Axel Score:</span>{" "}
-                  {areaInsights?.axelScore !== null && areaInsights?.axelScore !== undefined
-                    ? `${areaInsights.axelScore} / 100`
+                  {derivedAxelScore !== null && derivedAxelScore !== undefined
+                    ? `${derivedAxelScore} / 100`
                     : "N/A"}
                 </p>
                 <Button variant="outline" className="w-full rounded-2xl" onClick={clearSelection}>

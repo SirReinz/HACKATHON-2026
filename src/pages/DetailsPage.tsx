@@ -13,7 +13,9 @@
   } from "recharts"
   import { X } from "lucide-react"
   import ReactMarkdown from "react-markdown"
+  import type { Components } from "react-markdown"
 
+  import { InquirySidebarStack } from "@/components/InquirySidebarStack"
   import { useTheme } from "@/components/theme-provider"
   import { Badge } from "@/components/ui/badge"
   import { Card, CardContent } from "@/components/ui/card"
@@ -47,6 +49,38 @@
     "Sports and Recreation": "#888780",
     "Community and Government": "#534AB7",
     "Event": "#B4B2A9",
+  }
+
+  const markdownComponents: Components = {
+    h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-foreground">{children}</h1>,
+    h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-foreground">{children}</h2>,
+    h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-foreground">{children}</h3>,
+    p: ({ children }) => <p className="text-sm leading-6 text-foreground/90">{children}</p>,
+    ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/90">{children}</ol>,
+    li: ({ children }) => <li className="leading-6">{children}</li>,
+    strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+    em: ({ children }) => <em className="italic text-foreground/90">{children}</em>,
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-2 border-border pl-4 text-sm italic text-muted-foreground">{children}</blockquote>
+    ),
+    code: ({ children, className }) => {
+      const isInline = !className
+      return isInline ? (
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
+      ) : (
+        <code className="block rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-6 text-foreground whitespace-pre-wrap">
+          {children}
+        </code>
+      )
+    },
+    pre: ({ children }) => <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs text-foreground">{children}</pre>,
+    a: ({ children, href }) => (
+      <a href={href} className="font-medium text-primary underline underline-offset-2">
+        {children}
+      </a>
+    ),
+    hr: () => <hr className="border-border" />,
   }
 
   // ── Types ─────────────────────────────────────────────────────────────────────
@@ -104,6 +138,7 @@
     countsBySuburb: Record<string, number>
     initialAiSummary: string
     cachedData?: InquiryAnalysisData | null
+    useInquiryStyleSidebar?: boolean
   }
 
   // ── Map layer configs ─────────────────────────────────────────────────────────
@@ -291,6 +326,12 @@
     )
   }
 
+  function toScoreOutOf100(score: number | null | undefined): number | null {
+    if (typeof score !== "number" || !isFinite(score)) return null
+    const normalized = score <= 1 ? score * 100 : score
+    return Math.max(0, Math.min(100, normalized))
+  }
+
   // ── Chart helpers ─────────────────────────────────────────────────────────────
 
   function ratioByMax(values: number[]): number[] {
@@ -389,6 +430,7 @@
     countsBySuburb: externalCounts,
     initialAiSummary,
     cachedData = null,
+    useInquiryStyleSidebar = false,
   }: DetailsPageProps) {
     const mapRef = React.useRef<MapRef | null>(null)
     const mapPanelRef = React.useRef<HTMLDivElement | null>(null)
@@ -423,6 +465,7 @@
     const mapStyle = isDark
       ? "mapbox://styles/mapbox/dark-v11"
       : "mapbox://styles/mapbox/light-v11"
+    const cardClassName = "border-border/50 bg-background/60 shadow-2xl shadow-primary/10 backdrop-blur-md"
 
     const telemetry = React.useMemo(() => aggregateByCategory(venueData), [venueData])
 
@@ -681,6 +724,8 @@
     }, [open, activeIndex, cachedData, cachedActiveAnalysis, activeLabel, initialAiSummary]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const topVenueMix = [...donutData].sort((a, b) => b.value - a.value).slice(0, 5)
+    const activeScore = toScoreOutOf100(activeSuburb.finalScore)
+    const aiStatus = `TARGETING: ${suburbLabel(activeSuburb)}`
 
     if (!open) return null
 
@@ -839,8 +884,8 @@
                             {
                               label: "Axel Score",
                               value:
-                                activeSuburb.finalScore != null
-                                  ? `${(activeSuburb.finalScore * 100).toFixed(0)} / 100`
+                                activeScore != null
+                                  ? `${activeScore.toFixed(0)} / 100`
                                   : "N/A",
                             },
                           ].map(({ label, value }) => (
@@ -974,9 +1019,9 @@
                   <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
                     {suburbLabel(activeSuburb)}
                   </p>
-                  {activeSuburb.finalScore != null && (
+                  {activeScore != null && (
                     <p className="text-xs font-semibold tabular-nums" style={{ color: activeColor }}>
-                      {(activeSuburb.finalScore * 100).toFixed(0)} / 100
+                      {activeScore.toFixed(0)} / 100
                     </p>
                   )}
                 </div>
@@ -988,48 +1033,67 @@
               </div>
             </div>
 
-            {/* ── Column 3: AI briefing ─────────────────────────────────────── */}
-            <div className="w-[350px] flex-shrink-0 min-h-0 flex flex-col gap-4 pl-2">
-              <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card overflow-hidden">
-              <div className="shrink-0 border-b border-border/50 px-5 py-3">
-                <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
-                  AI Analysis
-                </p>
-                <p className="text-sm font-semibold">{suburbLabel(activeSuburb)}</p>
-              </div>
+            {/* ── Column 3: AI briefing + current selection ─────────────────── */}
+            <div className={useInquiryStyleSidebar ? "w-[min(430px,calc(100%-2rem))] shrink-0 min-h-0 flex flex-col gap-4 pl-2" : "w-[350px] shrink-0 min-h-0 flex flex-col gap-4 pl-2"}>
+              {useInquiryStyleSidebar ? (
+                <InquirySidebarStack
+                  aiSummary={aiSummary}
+                  briefingLoading={briefingLoading}
+                  aiStatus={aiStatus}
+                  areaLabel={suburbLabel(activeSuburb)}
+                  venueCount={telemetry.total}
+                  wealthDecile={activeSuburb.seifaDecile}
+                  competitorsPerThousand={activeSuburb.competitorsPerThousand}
+                  axelScore={activeScore}
+                  venueByCategory={telemetry.byCategory}
+                  onFreeView={onClose}
+                  onDeepDive={() => {}}
+                  deepDiveDisabled={true}
+                  markdownComponents={markdownComponents}
+                  cardClassName={cardClassName}
+                />
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card overflow-hidden">
+                  <div className="shrink-0 border-b border-border/50 px-5 py-3">
+                    <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
+                      AI Analysis
+                    </p>
+                    <p className="text-sm font-semibold">{suburbLabel(activeSuburb)}</p>
+                  </div>
 
-              {draft && (
-                <div className="shrink-0 border-b border-border/50 bg-muted/30 px-5 py-2.5">
-                  <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
-                    Inquiry
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                      {draft.businessType} · {draft.spendingBracket}
-                  </p>
-                </div>
-              )}
-
-                <ScrollArea className="min-h-0 flex-1">
-                <div className="px-5 py-4">
-                  {briefingLoading ? (
-                    <div className="space-y-2.5">
-                      <Skeleton className="h-3.5 w-full" />
-                      <Skeleton className="h-3.5 w-11/12" />
-                      <Skeleton className="h-3.5 w-4/5" />
-                      <Skeleton className="h-3.5 w-full" />
-                      <Skeleton className="h-3.5 w-3/4" />
-                      <Skeleton className="h-3.5 w-11/12" />
-                      <Skeleton className="h-3.5 w-4/5" />
-                      <Skeleton className="h-3.5 w-full" />
-                    </div>
-                  ) : (
-                    <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-ul:my-2 prose-ol:my-2 dark:prose-invert [&_*]:break-words">
-                      <ReactMarkdown>{aiSummary}</ReactMarkdown>
+                  {draft && (
+                    <div className="shrink-0 border-b border-border/50 bg-muted/30 px-5 py-2.5">
+                      <p className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
+                        Inquiry
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {draft.businessType} · {draft.spendingBracket}
+                      </p>
                     </div>
                   )}
+
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div className="px-5 py-4">
+                      {briefingLoading ? (
+                        <div className="space-y-2.5">
+                          <Skeleton className="h-3.5 w-full" />
+                          <Skeleton className="h-3.5 w-11/12" />
+                          <Skeleton className="h-3.5 w-4/5" />
+                          <Skeleton className="h-3.5 w-full" />
+                          <Skeleton className="h-3.5 w-3/4" />
+                          <Skeleton className="h-3.5 w-11/12" />
+                          <Skeleton className="h-3.5 w-4/5" />
+                          <Skeleton className="h-3.5 w-full" />
+                        </div>
+                      ) : (
+                        <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-ul:my-2 prose-ol:my-2 dark:prose-invert [&_*]:break-words">
+                          <ReactMarkdown>{aiSummary}</ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
                 </div>
-                </ScrollArea>
-              </div>
+              )}
             </div>
           </div>
         </div>
