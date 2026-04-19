@@ -4,6 +4,8 @@ import { Check, ChevronsUpDown, Trash2 } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
 import axelLogo from "@/assets/axel-logo.svg"
+import { MarketRadarChart } from "@/components/charts/MarketRadarChart"
+import { VenueMixChart } from "@/components/charts/VenueMixChart"
 import { InquiryFormDialog } from "@/components/InquiryFormDialog"
 import { PreviewMap, type HoveredInquiry } from "@/components/PreviewMap"
 import { UserProfileBox } from "@/components/UserProfileBox"
@@ -27,6 +29,28 @@ type InquiryRow = {
   business_type: string
   spending_bracket: string
   created_at: string
+  analysis_data?: {
+    population?: number | null
+    competitorsPerThousand?: number | null
+    seifaDecile?: number | null
+    finalScore?: number | null
+    aiBriefing?: string
+    radarData?: Array<Record<string, string | number>>
+    venueMix?: Array<{ name: string; value: number; fill?: string }>
+    boundary_geojson?: {
+      type?: "Polygon" | "MultiPolygon"
+      coordinates?: unknown
+    } | null
+    bySuburb?: Record<
+      string,
+      {
+        boundary_geojson?: {
+          type?: "Polygon" | "MultiPolygon"
+          coordinates?: unknown
+        } | null
+      }
+    >
+  } | null
   results_data: {
     suburbs?: string[]
     active_suburb?: string
@@ -53,6 +77,17 @@ export function DashboardPage() {
   const [deletingInquiryId, setDeletingInquiryId] = React.useState<string | null>(null)
   const isInquiryDialogOpen = location.pathname === "/inquiry/new"
 
+  const hoveredInquiryRow = React.useMemo(() => {
+    if (!hoveredInquiry) return null
+    return inquiries.find((item) => item.id === hoveredInquiry.id) ?? null
+  }, [hoveredInquiry, inquiries])
+
+  const hoveredAnalysis = hoveredInquiryRow?.analysis_data ?? null
+  const hoveredRadarData =
+    hoveredAnalysis && Array.isArray(hoveredAnalysis.radarData) ? hoveredAnalysis.radarData : []
+  const hoveredVenueMix =
+    hoveredAnalysis && Array.isArray(hoveredAnalysis.venueMix) ? hoveredAnalysis.venueMix : []
+
   React.useEffect(() => {
     let cancelled = false
 
@@ -64,7 +99,7 @@ export function DashboardPage() {
 
       const { data } = await supabase
         .from("inquiries")
-        .select("id, business_type, spending_bracket, created_at, results_data")
+        .select("id, business_type, spending_bracket, created_at, results_data, analysis_data")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
 
@@ -113,7 +148,15 @@ export function DashboardPage() {
 
   const toHoveredInquiry = React.useCallback((inquiry: InquiryRow): HoveredInquiry => {
     const activeSuburb = inquiry.results_data?.active_suburb ?? inquiry.results_data?.suburbs?.[0] ?? "Unknown suburb"
-    const boundaryRaw = inquiry.results_data?.boundary_geojson
+    const normalizedActive = activeSuburb.trim().toLowerCase()
+    const bySuburbBoundary = inquiry.analysis_data?.bySuburb
+      ? Object.entries(inquiry.analysis_data.bySuburb).find(
+          ([name]) => name.trim().toLowerCase() === normalizedActive
+        )?.[1]?.boundary_geojson
+      : null
+
+    const boundaryRaw =
+      bySuburbBoundary ?? inquiry.analysis_data?.boundary_geojson ?? inquiry.results_data?.boundary_geojson
 
     const boundaryGeojson =
       boundaryRaw?.type && (boundaryRaw.type === "Polygon" || boundaryRaw.type === "MultiPolygon")
@@ -360,7 +403,7 @@ export function DashboardPage() {
                       return (
                     <Card
                       key={inquiry.id}
-                      className={`relative cursor-pointer border bg-card transition-all duration-200 hover:border-border hover:bg-accent/35 dark:hover:bg-slate-800/80 ${isActivePreview ? "border-cyan-500/80 shadow-[0_0_0_1px_rgba(8,145,178,0.35)] dark:border-cyan-300/90 dark:shadow-[0_0_0_1px_rgba(103,232,249,0.35)]" : "border-border"}`}
+                      className={`relative p-4 pr-12 cursor-pointer border bg-card transition-all w-full duration-200 hover:border-border hover:bg-accent/35 dark:hover:bg-slate-800/80 ${isActivePreview ? "border-cyan-500/80 shadow-[0_0_0_1px_rgba(8,145,178,0.35)] dark:border-cyan-300/90 dark:shadow-[0_0_0_1px_rgba(103,232,249,0.35)]" : "border-border"}`}
                       onClick={() => navigate(`/inquiry/results?inquiryId=${inquiry.id}`)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
@@ -371,10 +414,11 @@ export function DashboardPage() {
                       role="button"
                       tabIndex={0}
                       aria-label={`Open saved inquiry ${inquiry.business_type}`}
+                      onMouseEnter={() => setHoveredInquiry(toHoveredInquiry(inquiry))}
                     >
                       <CardHeader>
-                        <div className="min-w-0 space-y-1 pr-10">
-                            <CardTitle className="truncate text-base font-semibold text-foreground text-2xs">{inquiry.business_type}</CardTitle>
+                        <div className="grid grid-cols-1 gap-1 min-w-0 flex-1">
+                            <CardTitle className="block w-full truncate text-base font-semibold text-foreground text-2xs">{inquiry.business_type}</CardTitle>
                             <p className="text-xs text-muted-foreground">
                               {new Date(inquiry.created_at).toLocaleString()}
                             </p>
@@ -397,12 +441,12 @@ export function DashboardPage() {
                             <Trash2 className="size-4" />
                           </Button>
                       </CardHeader>
-                      <CardContent className="space-y-2 text-sm">
-                        <div className="flex w-full min-w-0 flex-row items-center gap-2">
-                          <span className="rounded-sm border border-emerald-400/40 bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
+                      <CardContent className="grid grid-cols-1 gap-1 text-sm min-w-0">
+                        <div className="flex items-center gap-2 mt-2 w-full">
+                          <span className="shrink-0 bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-xs font-medium border border-emerald-500/20">
                             Spend: {inquiry.spending_bracket}
                           </span>
-                          <span className="flex-1 min-w-0 truncate rounded-sm border border-cyan-400/40 bg-cyan-100 px-2 py-1 text-xs font-medium text-cyan-700 dark:border-cyan-400/25 dark:bg-cyan-500/10 dark:text-cyan-200">
+                          <span className="truncate block w-full text-xs text-slate-300">
                             {(inquiry.results_data?.suburbs ?? []).join(", ") || "No suburb"}
                           </span>
                         </div>
@@ -421,22 +465,94 @@ export function DashboardPage() {
                 <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-2">
                   <Button
                     variant="ghost"
-                    className="h-10 flex-1 cursor-pointer items-center justify-center rounded-lg border border-sky-400/70 bg-sky-100 text-sm font-black tracking-[0.14em] text-sky-800 uppercase hover:bg-sky-200 transition-colors dark:border-sky-500/60 dark:bg-sky-500/20 dark:text-sky-100 dark:hover:bg-sky-500/30"
+                    className="h-10 flex-1 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-200 text-sm font-black tracking-[0.14em] text-sky-900 uppercase shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] hover:bg-sky-300 transition-colors dark:border-sky-500/60 dark:bg-sky-500/20 dark:text-sky-100 dark:hover:bg-sky-500/30"
                     onClick={() => navigate("/explore")}
                   >
                     Free Explore
                   </Button>
                   <Button
                     variant="ghost"
-                    className="h-10 flex-1 cursor-pointer items-center justify-center rounded-lg border border-amber-400/80 bg-amber-100 text-sm font-black tracking-[0.14em] text-amber-800 uppercase hover:bg-amber-200 transition-colors dark:border-amber-400/70 dark:bg-amber-400/20 dark:text-amber-100 dark:hover:bg-amber-400/30"
+                    className="h-10 flex-1 cursor-pointer items-center justify-center rounded-lg border border-amber-500 bg-amber-200 text-sm font-black tracking-[0.14em] text-amber-900 uppercase shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] hover:bg-amber-300 transition-colors dark:border-amber-400/70 dark:bg-amber-400/20 dark:text-amber-100 dark:hover:bg-amber-400/30"
                     onClick={() => navigate("/inquiry/new")}
                   >
                     New Inquiry
                   </Button>
                 </div>
 
-                <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
                   <PreviewMap hoveredInquiry={hoveredInquiry} />
+                  {hoveredInquiry ? (
+                    hoveredAnalysis && (hoveredRadarData.length > 0 || hoveredVenueMix.length > 0) ? (
+                      <div className="absolute top-3 right-3 bottom-3 z-20 w-[min(25%,320px)] min-w-60">
+                        <div className="flex h-full min-h-0 flex-col gap-2">
+                          {hoveredRadarData.length > 0 ? (
+                            <div className="h-40 min-h-0 overflow-hidden rounded-xl bg-slate-950/35 backdrop-blur-sm">
+                              <MarketRadarChart data={hoveredRadarData} className="h-full w-full" />
+                            </div>
+                          ) : null}
+
+                          {hoveredVenueMix.length > 0 ? (
+                            <div className="min-h-0 overflow-hidden rounded-xl bg-slate-950/35 backdrop-blur-sm">
+                              <div className="flex h-full min-h-0 flex-col gap-2 p-2">
+                                <div className="flex min-h-0 justify-center">
+                                  <VenueMixChart data={hoveredVenueMix} className="h-36 w-full max-w-44" />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 w-fit mx-auto">
+                                  {[
+                                    {
+                                      label: "Population",
+                                      value:
+                                        typeof hoveredAnalysis.population === "number"
+                                          ? hoveredAnalysis.population.toLocaleString()
+                                          : "N/A",
+                                    },
+                                    {
+                                      label: "Axel Score",
+                                      value:
+                                        typeof hoveredAnalysis.finalScore === "number"
+                                          ? `${(hoveredAnalysis.finalScore * 100).toFixed(0)} / 100`
+                                          : "N/A",
+                                    },
+                                    {
+                                      label: "Wealth Decile",
+                                      value:
+                                        typeof hoveredAnalysis.seifaDecile === "number"
+                                          ? `${hoveredAnalysis.seifaDecile} / 10`
+                                          : "N/A",
+                                    },
+                                    {
+                                      label: "Competitors / 1k",
+                                      value:
+                                        typeof hoveredAnalysis.competitorsPerThousand === "number"
+                                          ? String(hoveredAnalysis.competitorsPerThousand)
+                                          : "N/A",
+                                    },
+                                  ].map(({ label, value }) => (
+                                    <div
+                                      key={label}
+                                      className="min-w-24 max-w-max p-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-left"
+                                    >
+                                      <p className="truncate text-[8px] font-semibold tracking-wide text-slate-200/70 uppercase">
+                                        {label}
+                                      </p>
+                                      <p className="mt-0.5 text-lg font-bold leading-none tabular-nums text-slate-50">
+                                        {value}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="absolute top-3 right-3 z-20 rounded-full bg-slate-950/35 px-3 py-1.5 text-[11px] text-slate-200/85 backdrop-blur-sm">
+                        Analytics currently calculating or unavailable
+                      </div>
+                    )
+                  ) : null}
                 </div>
               </div>
             </div>

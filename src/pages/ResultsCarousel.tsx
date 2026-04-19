@@ -7,6 +7,7 @@ import type { LayerProps, MapRef } from "react-map-gl/mapbox"
 import Map, { NavigationControl, Source, Layer } from "react-map-gl/mapbox"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
+import ReactMarkdown, { type Components } from "react-markdown"
 
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -83,6 +84,69 @@ type InquiryResultsData = {
   scoring?: SavedScoringRow[]
 }
 
+type CachedVenueMixItem = {
+  name: string
+  value: number
+}
+
+type CachedAnalysisEntry = {
+  population?: number | null
+  competitorsPerThousand?: number | null
+  seifaDecile?: number | null
+  finalScore?: number | null
+  venueMix?: CachedVenueMixItem[]
+  radarData?: Array<Record<string, string | number>>
+  aiBriefing?: string
+  boundary_geojson?: {
+    type?: "Polygon" | "MultiPolygon"
+    coordinates?: unknown
+  } | null
+}
+
+type InquiryAnalysisData = CachedAnalysisEntry & {
+  active_suburb?: string
+  bySuburb?: Record<string, CachedAnalysisEntry>
+}
+
+type InquiryRow = {
+  business_type: string
+  spending_bracket: "$" | "$$" | "$$$"
+  results_data?: InquiryResultsData | null
+  analysis_data?: InquiryAnalysisData | null
+}
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-foreground">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-foreground">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="text-sm leading-6 text-foreground/90">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/90">{children}</ol>,
+  li: ({ children }) => <li className="leading-6">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic text-foreground/90">{children}</em>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-border pl-4 text-sm italic text-muted-foreground">{children}</blockquote>
+  ),
+  code: ({ children, className }) => {
+    const isInline = !className
+    return isInline ? (
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
+    ) : (
+      <code className="block rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-6 text-foreground whitespace-pre-wrap">
+        {children}
+      </code>
+    )
+  },
+  pre: ({ children }) => <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs text-foreground">{children}</pre>,
+  a: ({ children, href }) => (
+    <a href={href} className="font-medium text-primary underline underline-offset-2">
+      {children}
+    </a>
+  ),
+  hr: () => <hr className="border-border" />,
+}
+
 function suburbLabel(suburb: ResultSuburb): string {
   return suburb.displayName ?? suburb.name
 }
@@ -98,6 +162,89 @@ function fallbackCenterForSuburb(name: string, index: number): [number, number] 
   }
 
   return [151.2093 + index * 0.01, -33.8688 - index * 0.01]
+}
+
+function ratioByMax(values: number[]): number[] {
+  const maxValue = Math.max(...values)
+  if (!isFinite(maxValue) || maxValue <= 0) {
+    return values.map(() => 0)
+  }
+  return values.map((value) => Math.max(0, value) / maxValue)
+}
+
+function buildRadarSnapshot(
+  suburbs: ResultSuburb[],
+  countsBySuburb: Record<string, number>,
+  spendingBracket: "$" | "$$" | "$$$"
+): Array<Record<string, string | number>> {
+  if (!suburbs.length) return []
+
+  const targetDecile = spendingBracket === "$" ? 2.5 : spendingBracket === "$$" ? 5.5 : 8.5
+  const competitors = suburbs.map((s) => s.competitorsPerThousand ?? 0)
+  const populations = suburbs.map((s) => s.population ?? 0)
+  const poiCounts = suburbs.map((s) => countsBySuburb[suburbLabel(s)] ?? 0)
+  const marketSizes = suburbs.map((s) => (s.population ?? 0) * (s.seifaDecile ?? 1))
+  const wealthRaw = suburbs.map((s) =>
+    Math.max(0, 1 - Math.abs((s.seifaDecile ?? 5) - targetDecile) / 10)
+  )
+
+  const compRatios = ratioByMax(competitors)
+  const popRatios = ratioByMax(populations)
+  const poiRatios = ratioByMax(poiCounts)
+  const marketRatios = ratioByMax(marketSizes)
+  const wealthRatios = ratioByMax(wealthRaw)
+
+  const axes = [
+    { label: "Low Competition", get: (i: number) => +(1 - compRatios[i]).toFixed(3) },
+    { label: "Wealth Match", get: (i: number) => +wealthRatios[i].toFixed(3) },
+    { label: "Population", get: (i: number) => +popRatios[i].toFixed(3) },
+    { label: "POI Diversity", get: (i: number) => +poiRatios[i].toFixed(3) },
+    { label: "Market Size", get: (i: number) => +marketRatios[i].toFixed(3) },
+  ]
+
+  return axes.map(({ label, get }) => {
+    const entry: Record<string, string | number> = { metric: label }
+    suburbs.forEach((_, i) => {
+      entry[`s${i}`] = get(i)
+    })
+    return entry
+  })
+}
+
+function toFeatureFromGeometry(
+  geometry: CachedAnalysisEntry["boundary_geojson"]
+): Feature<Polygon | MultiPolygon> | null {
+  if (!geometry?.type) return null
+  if (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon") return null
+
+  return {
+    type: "Feature",
+    geometry: {
+      type: geometry.type,
+      coordinates: geometry.coordinates as Polygon["coordinates"] | MultiPolygon["coordinates"],
+    } as Polygon | MultiPolygon,
+    properties: {},
+  }
+}
+
+function getCachedAnalysisForSuburb(
+  analysisData: InquiryAnalysisData | null,
+  suburbName: string
+): CachedAnalysisEntry | null {
+  if (!analysisData) return null
+
+  const bySuburb = analysisData.bySuburb
+  if (bySuburb && typeof bySuburb === "object") {
+    const direct = bySuburb[suburbName]
+    if (direct) return direct
+
+    const normalizedTarget = normalizeName(suburbName)
+    for (const [key, value] of Object.entries(bySuburb)) {
+      if (normalizeName(key) === normalizedTarget) return value
+    }
+  }
+
+  return analysisData
 }
 
 // ── REMOVED: hardcoded demoResults ────────────────────────────────────────
@@ -350,6 +497,7 @@ export function ResultsCarouselPage() {
   const [hasSavedInquiry, setHasSavedInquiry] = React.useState(Boolean(inquiryId))
   const [restoringInquiry, setRestoringInquiry] = React.useState(false)
   const [navigationLocked, setNavigationLocked] = React.useState(false)
+  const [analysisDataCache, setAnalysisDataCache] = React.useState<InquiryAnalysisData | null>(null)
 
   // ── NEW: scoring state ──────────────────────────────────────────────────
   const [scoredResults, setScoredResults] = React.useState<ResultSuburb[]>(FALLBACK_RESULTS)
@@ -397,7 +545,7 @@ export function ResultsCarouselPage() {
     const restoreInquiry = async () => {
       const { data, error } = await supabase
         .from("inquiries")
-        .select("business_type, spending_bracket, results_data")
+        .select("business_type, spending_bracket, results_data, analysis_data")
         .eq("id", inquiryId)
         .eq("user_id", user.id)
         .maybeSingle()
@@ -411,12 +559,17 @@ export function ResultsCarouselPage() {
         return
       }
 
+      const row = data as InquiryRow
+
       setDraft({
         businessType: data.business_type,
         spendingBracket: data.spending_bracket,
       })
 
-      const resultsData = (data.results_data ?? {}) as InquiryResultsData
+      const resultsData = (row.results_data ?? {}) as InquiryResultsData
+      const analysisData = (row.analysis_data ?? null) as InquiryAnalysisData | null
+      setAnalysisDataCache(analysisData)
+
       const scoringRows = Array.isArray(resultsData.scoring) ? resultsData.scoring : []
 
       const savedNames = Array.isArray(resultsData.suburbs)
@@ -430,15 +583,17 @@ export function ResultsCarouselPage() {
           const scoringMatch = scoringRows.find(
             (row) => typeof row.name === "string" && normalizeName(row.name) === normalizeName(name)
           )
+          const cached = getCachedAnalysisForSuburb(analysisData, name)
 
           return {
             name,
             displayName: name,
             fallbackCenter: fallbackCenterForSuburb(name, index),
-            finalScore: scoringMatch?.finalScore,
-            competitorsPerThousand: scoringMatch?.competitorsPerThousand,
-            seifaDecile: scoringMatch?.seifaDecile,
-            population: scoringMatch?.population,
+            finalScore: scoringMatch?.finalScore ?? cached?.finalScore ?? undefined,
+            competitorsPerThousand:
+              scoringMatch?.competitorsPerThousand ?? cached?.competitorsPerThousand ?? undefined,
+            seifaDecile: scoringMatch?.seifaDecile ?? cached?.seifaDecile ?? undefined,
+            population: scoringMatch?.population ?? cached?.population ?? undefined,
             competitorCount: scoringMatch?.competitorCount,
           } as ResultSuburb
         }
@@ -455,6 +610,27 @@ export function ResultsCarouselPage() {
 
       if (resultsData.venue_counts_by_suburb && typeof resultsData.venue_counts_by_suburb === "object") {
         setCountsBySuburb(resultsData.venue_counts_by_suburb)
+      }
+
+      const activeLabel =
+        (typeof resultsData.active_suburb === "string" && resultsData.active_suburb) ||
+        (restoredSuburbs[0] ? suburbLabel(restoredSuburbs[0]) : "")
+
+      const cachedActive = getCachedAnalysisForSuburb(analysisData, activeLabel)
+      if (cachedActive?.aiBriefing) {
+        setAiSummary(cachedActive.aiBriefing)
+      }
+
+      const cachedBoundary = toFeatureFromGeometry(cachedActive?.boundary_geojson ?? null)
+      if (cachedBoundary) {
+        setBoundary(cachedBoundary)
+      }
+
+      if (cachedActive?.venueMix?.length) {
+        const total = cachedActive.venueMix.reduce((sum, item) => sum + (item.value ?? 0), 0)
+        if (activeLabel) {
+          setCountsBySuburb((prev) => ({ ...prev, [activeLabel]: total }))
+        }
       }
 
       setHasSavedInquiry(true)
@@ -605,7 +781,9 @@ export function ResultsCarouselPage() {
       setBriefingLoading(false)
 
       const label = suburbLabel(suburb)
-      const foundBoundary = await fetchNominatimBoundary(label)
+      const cachedEntry = getCachedAnalysisForSuburb(analysisDataCache, label)
+      const cachedBoundary = toFeatureFromGeometry(cachedEntry?.boundary_geojson ?? null)
+      const foundBoundary = cachedBoundary ?? (await fetchNominatimBoundary(label))
       if (shouldCancel()) return
 
       if (!foundBoundary) {
@@ -698,6 +876,13 @@ export function ResultsCarouselPage() {
         return
       }
 
+      if (cachedEntry?.aiBriefing) {
+        setAiSummary(cachedEntry.aiBriefing)
+        setBriefingLoading(false)
+        setFetchMessage(null)
+        return
+      }
+
       lastSmartResponderRequestKey = requestKey
       setFetchMessage("AI is analyzing area...")
       setBriefingLoading(true)
@@ -751,7 +936,7 @@ export function ResultsCarouselPage() {
       setBriefingLoading(false)
       setFetchMessage(null)
     },
-    [draft, startCameraRotation, stopCameraRotation]
+    [analysisDataCache, draft, startCameraRotation, stopCameraRotation]
   )
 
   React.useEffect(() => {
@@ -927,15 +1112,50 @@ export function ResultsCarouselPage() {
 
     setSaveLoading(true)
 
+    const activeLabel = suburbLabel(activeSuburb)
+    const venueMix: CachedVenueMixItem[] = Object.entries(telemetry.byCategory).map(([name, value]) => ({
+      name,
+      value,
+    }))
+    const radarData = buildRadarSnapshot(scoredResults, countsBySuburb, draft.spendingBracket)
+    const boundaryGeometry =
+      boundary?.geometry && (boundary.geometry.type === "Polygon" || boundary.geometry.type === "MultiPolygon")
+        ? {
+            type: boundary.geometry.type,
+            coordinates: boundary.geometry.coordinates,
+          }
+        : null
+
+    const activeAnalysisEntry: CachedAnalysisEntry = {
+      population: activeSuburb.population ?? null,
+      competitorsPerThousand: activeSuburb.competitorsPerThousand ?? null,
+      seifaDecile: activeSuburb.seifaDecile ?? null,
+      finalScore: activeSuburb.finalScore ?? null,
+      venueMix,
+      radarData,
+      aiBriefing: aiSummary,
+      boundary_geojson: boundaryGeometry,
+    }
+
+    const analysisData: InquiryAnalysisData = {
+      ...activeAnalysisEntry,
+      active_suburb: activeLabel,
+      bySuburb: {
+        [activeLabel]: activeAnalysisEntry,
+      },
+    }
+
     const { error: insertError } = await supabase.from("inquiries").insert({
       user_id: user.id,
       business_type: draft.businessType,
       spending_bracket: draft.spendingBracket,
+      analysis_data: analysisData,
       results_data: {
         suburbs: scoredResults.map((r) => suburbLabel(r)),
-        active_suburb: suburbLabel(activeSuburb),
+        active_suburb: activeLabel,
         venue_counts_by_suburb: countsBySuburb,
         telemetry_by_category: telemetry.byCategory,
+        boundary_geojson: boundaryGeometry,
         // ── NEW: save scoring metadata too ──
         scoring: scoredResults.map((r) => ({
           name: suburbLabel(r),
@@ -1085,7 +1305,9 @@ export function ResultsCarouselPage() {
               </div>
             ) : (
               <ScrollArea className="h-44 pr-3">
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
+                <div className="space-y-3 text-foreground/90">
+                  <ReactMarkdown components={markdownComponents}>{aiSummary}</ReactMarkdown>
+                </div>
               </ScrollArea>
             )}
           </CardContent>
@@ -1184,6 +1406,7 @@ export function ResultsCarouselPage() {
         initialActiveIndex={activeIndex}
         countsBySuburb={countsBySuburb}
         initialAiSummary={aiSummary}
+        cachedData={analysisDataCache}
       />
     </main>
   )
