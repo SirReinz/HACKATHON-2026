@@ -1,7 +1,8 @@
 import * as React from "react"
 import { useUser } from "@clerk/clerk-react"
-import { Check, ChevronsUpDown, Trash2 } from "lucide-react"
+import { Check, ChevronsUpDown, Share2, Trash2 } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 
 import { MarketRadarChart } from "@/components/charts/MarketRadarChart"
 import { VenueMixChart } from "@/components/charts/VenueMixChart"
@@ -74,6 +75,8 @@ export function DashboardPage() {
   const [businessFilterOpen, setBusinessFilterOpen] = React.useState(false)
   const [spendFilterOpen, setSpendFilterOpen] = React.useState(false)
   const [deletingInquiryId, setDeletingInquiryId] = React.useState<string | null>(null)
+  const [sharingInquiryId, setSharingInquiryId] = React.useState<string | null>(null)
+  const [sharedInquiryId, setSharedInquiryId] = React.useState<string | null>(null)
   const isInquiryDialogOpen = location.pathname === "/inquiry/new"
 
   const hoveredInquiryRow = React.useMemo(() => {
@@ -261,6 +264,44 @@ export function DashboardPage() {
     [deletingInquiryId, user],
   )
 
+  const handleShareInquiry = React.useCallback(
+    async (inquiryId: string) => {
+      if (sharingInquiryId) return
+
+      setSharingInquiryId(inquiryId)
+
+      try {
+        const { error } = await supabase
+          .from("inquiries")
+          .update({ public: true })
+          .eq("id", inquiryId)
+
+        if (error) {
+          console.error("Share inquiry failed", error)
+          toast.error("Failed to share inquiry")
+          setSharingInquiryId(null)
+          return
+        }
+
+        const shareUrl = `${window.location.origin}/shared/${inquiryId}`
+        await navigator.clipboard.writeText(shareUrl)
+        
+        setSharedInquiryId(inquiryId)
+        toast.success("Link copied to clipboard!")
+        
+        setTimeout(() => {
+          setSharedInquiryId(null)
+        }, 2000)
+      } catch (err) {
+        console.error("Share inquiry error", err)
+        toast.error("Failed to copy link")
+      } finally {
+        setSharingInquiryId(null)
+      }
+    },
+    [sharingInquiryId],
+  )
+
   return (
     <main className="min-h-svh bg-background text-foreground">
       <header className="fixed top-0 right-0 left-0 z-50 border-b border-border/80 bg-background/95 backdrop-blur-xl">
@@ -422,11 +463,33 @@ export function DashboardPage() {
                               {new Date(inquiry.created_at).toLocaleString()}
                             </p>
                         </div>
+                        <div className="absolute top-4 right-4 flex flex-col gap-2 items-center">
                           <Button
                             type="button"
                             size="icon"
                             variant="ghost"
-                            className="absolute top-4 right-4 h-8 w-8 shrink-0 text-red-500 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/15 dark:hover:text-red-300"
+                            className="h-8 w-8 shrink-0 text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-300"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void handleShareInquiry(inquiry.id)
+                            }}
+                            onKeyDown={(event) => {
+                              event.stopPropagation()
+                            }}
+                            disabled={sharingInquiryId === inquiry.id}
+                            aria-label={`Share inquiry ${inquiry.business_type}`}
+                          >
+                            {sharedInquiryId === inquiry.id ? (
+                              <Check className="size-4" />
+                            ) : (
+                              <Share2 className="size-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 shrink-0 text-red-500 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/15 dark:hover:text-red-300"
                             onClick={(event) => {
                               event.stopPropagation()
                               void handleDeleteInquiry(inquiry.id)
@@ -439,6 +502,7 @@ export function DashboardPage() {
                           >
                             <Trash2 className="size-4" />
                           </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="grid grid-cols-1 gap-1 text-sm min-w-0">
                         <div className="flex items-center gap-2 mt-2 w-full">

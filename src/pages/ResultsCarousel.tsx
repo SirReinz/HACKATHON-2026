@@ -92,6 +92,7 @@ type CachedAnalysisEntry = {
   seifaDecile?: number | null
   finalScore?: number | null
   venueMix?: CachedVenueMixItem[]
+  venueData?: FeatureCollection<Point, PlaceProperties>
   radarData?: Array<Record<string, string | number>>
   aiBriefing?: string
   boundary_geojson?: {
@@ -542,12 +543,14 @@ export function ResultsCarouselPage() {
     const restoreInquiry = async () => {
       const { data, error } = await supabase
         .from("inquiries")
-        .select("business_type, spending_bracket, results_data, analysis_data")
+        .select("business_type, spending_bracket, results_data, analysis_data, public, user_id")
         .eq("id", inquiryId)
-        .eq("user_id", user.id)
         .maybeSingle()
 
-      if (error || !data) {
+      const isOwner = data?.user_id === user.id
+      const isPublic = Boolean(data?.public)
+
+      if (error || !data || (!isOwner && !isPublic)) {
         toast.error("Could not open saved inquiry.")
         navigate("/dashboard", { replace: true })
         setRestoringInquiry(false)
@@ -873,13 +876,15 @@ export function ResultsCarouselPage() {
         return
       }
 
-      if (cachedEntry?.aiBriefing) {
+      // Only use cached briefing if it exists and is not empty
+      if (cachedEntry?.aiBriefing && cachedEntry.aiBriefing.trim().length > 0) {
         setAiSummary(cachedEntry.aiBriefing)
         setBriefingLoading(false)
         setFetchMessage(null)
         return
       }
 
+      // No cached briefing or it's empty - generate a new one
       lastSmartResponderRequestKey = requestKey
       setFetchMessage("AI is analyzing area...")
       setBriefingLoading(true)
@@ -930,10 +935,39 @@ export function ResultsCarouselPage() {
           : response?.briefing ?? response?.summary ?? response?.text ?? JSON.stringify(response, null, 2)
 
       setAiSummary(result)
+      
+      // Save the generated briefing to cache and database
+      if (analysisDataCache) {
+        const updatedCache: InquiryAnalysisData = {
+          ...analysisDataCache,
+          bySuburb: {
+            ...(analysisDataCache.bySuburb ?? {}),
+            [label]: {
+              ...(analysisDataCache.bySuburb?.[label] ?? {}),
+              aiBriefing: result,
+            },
+          },
+        }
+        setAnalysisDataCache(updatedCache)
+        
+        // If viewing a saved inquiry, update the database
+        if (inquiryId && user) {
+          const { error: updateError } = await supabase
+            .from("inquiries")
+            .update({ analysis_data: updatedCache })
+            .eq("id", inquiryId)
+            .eq("user_id", user.id)
+          
+          if (updateError) {
+            console.error("Failed to save AI briefing to database:", updateError)
+          }
+        }
+      }
+      
       setBriefingLoading(false)
       setFetchMessage(null)
     },
-    [analysisDataCache, draft, startCameraRotation, stopCameraRotation]
+    [analysisDataCache, draft, startCameraRotation, stopCameraRotation, inquiryId, user]
   )
 
   React.useEffect(() => {
@@ -1129,17 +1163,33 @@ export function ResultsCarouselPage() {
       seifaDecile: activeSuburb.seifaDecile ?? null,
       finalScore: activeSuburb.finalScore ?? null,
       venueMix,
+      venueData,
       radarData,
       aiBriefing: aiSummary,
       boundary_geojson: boundaryGeometry,
     }
 
+    // Build bySuburb entries for ALL suburbs so they can be accessed when navigating
+    const bySuburbEntries: Record<string, CachedAnalysisEntry> = {}
+    scoredResults.forEach((suburb) => {
+      const label = suburbLabel(suburb)
+      bySuburbEntries[label] = {
+        population: suburb.population ?? null,
+        competitorsPerThousand: suburb.competitorsPerThousand ?? null,
+        seifaDecile: suburb.seifaDecile ?? null,
+        finalScore: suburb.finalScore ?? null,
+        venueMix,
+        venueData: label === activeLabel ? venueData : undefined,
+        radarData,
+        aiBriefing: label === activeLabel ? aiSummary : "", // Only save briefing for active suburb
+        boundary_geojson: label === activeLabel ? boundaryGeometry : null, // Only save boundary for active
+      }
+    })
+
     const analysisData: InquiryAnalysisData = {
       ...activeAnalysisEntry,
       active_suburb: activeLabel,
-      bySuburb: {
-        [activeLabel]: activeAnalysisEntry,
-      },
+      bySuburb: bySuburbEntries,
     }
 
     const { error: insertError } = await supabase.from("inquiries").insert({
@@ -1186,8 +1236,8 @@ export function ResultsCarouselPage() {
             longitude: activeSuburb.fallbackCenter[0],
             latitude: activeSuburb.fallbackCenter[1],
             zoom: 14.7,
-            pitch: 60,
-            bearing: -20,
+            pitch: 0,
+            bearing: 0,
           }}
           dragRotate={true}
           mapStyle={mapStyle}

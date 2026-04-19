@@ -117,6 +117,7 @@
     seifaDecile?: number | null
     finalScore?: number | null
     venueMix?: CachedVenueMixItem[]
+    venueData?: FeatureCollection<Point, PlaceProperties>
     radarData?: Array<Record<string, string | number>>
     aiBriefing?: string
     boundary_geojson?: {
@@ -608,39 +609,49 @@
       const load = async () => {
         const label = activeLabel
         const cached = cachedActiveAnalysis
+        const cachedBoundary = toFeatureFromGeometry(cached?.boundary_geojson ?? null)
+        const hasCachedBriefing = Boolean(cached?.aiBriefing)
+        const hasCachedVenueMix = Array.isArray(cached?.venueMix) && cached.venueMix.length > 0
 
-        if (cachedData) {
-          setCachedRadarData(Array.isArray(cached?.radarData) ? cached.radarData : [])
-          setCachedVenueMix(Array.isArray(cached?.venueMix) ? cached.venueMix : [])
-          setAiSummary(cached?.aiBriefing || initialAiSummary || "Cached analysis loaded.")
+        if (cached) {
+          setCachedRadarData(Array.isArray(cached.radarData) ? cached.radarData : [])
+          setCachedVenueMix(Array.isArray(cached.venueMix) ? cached.venueMix : [])
+          setAiSummary(cached.aiBriefing || initialAiSummary || "Cached analysis loaded.")
 
-          const cachedBoundary = toFeatureFromGeometry(cached?.boundary_geojson ?? null)
-          setBoundary(cachedBoundary)
+          if (cachedBoundary) {
+            setBoundary(cachedBoundary)
+          }
 
-          const totalFromVenueMix = Array.isArray(cached?.venueMix)
-            ? cached.venueMix.reduce((sum, item) => sum + (item.value ?? 0), 0)
+          if (cached.venueData) {
+            setVenueData(cached.venueData)
+          }
+
+          const totalFromVenueMix = hasCachedVenueMix
+            ? cached.venueMix!.reduce((sum, item) => sum + (item.value ?? 0), 0)
             : 0
           setLocalCounts((prev) => ({ ...prev, [label]: totalFromVenueMix }))
           setBriefingLoading(false)
+          needsAiRef.current = true
 
-          return
+          if (cachedBoundary && hasCachedVenueMix && hasCachedBriefing && cached.venueData) {
+            return
+          }
         }
 
-        if (cached?.aiBriefing) {
-          setAiSummary(cached.aiBriefing)
-        }
-
-        if (cached?.venueMix?.length) {
-          const cachedTotal = cached.venueMix.reduce((sum, item) => sum + (item.value ?? 0), 0)
-          setLocalCounts((prev) => ({ ...prev, [label]: cachedTotal }))
-        }
-
-        const cachedBoundary = toFeatureFromGeometry(cached?.boundary_geojson ?? null)
         if (cachedBoundary) {
           setBoundary(cachedBoundary)
         }
 
-        if (cachedBoundary && cached?.venueMix?.length && cached?.aiBriefing) {
+        if (hasCachedVenueMix) {
+          const cachedTotal = cached!.venueMix!.reduce((sum, item) => sum + (item.value ?? 0), 0)
+          setLocalCounts((prev) => ({ ...prev, [label]: cachedTotal }))
+        }
+
+        if (hasCachedBriefing) {
+          setAiSummary(cached!.aiBriefing!)
+        }
+
+        if (cachedBoundary && hasCachedVenueMix && hasCachedBriefing && cached?.venueData) {
           return
         }
 

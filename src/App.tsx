@@ -9,6 +9,7 @@ import { SignUpPage } from "@/pages/SignUpPage"
 import { LandingPage } from "@/pages/LandingPage"
 import { MapPage } from "@/pages/MapPage"
 import { ProfilePage } from "@/pages/ProfilePage"
+import { SharedInquiryLoader } from "@/pages/SharedInquiryLoader"
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -90,6 +91,7 @@ export function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/shared/:id" element={<SharedInquiryLoader />} />
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
