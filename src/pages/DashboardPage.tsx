@@ -98,7 +98,7 @@ export function DashboardPage() {
   }, [selectedBusiness])
 
   const selectedSpendLabel = React.useMemo(() => {
-    if (selectedSpend.length === 0) return "All Spending Brackets"
+    if (selectedSpend.length === 0) return "All Spend Brackets"
     if (selectedSpend.length === 1) return selectedSpend[0]
     return `${selectedSpend.length} Spending Brackets`
   }, [selectedSpend])
@@ -372,9 +372,9 @@ export function DashboardPage() {
                       tabIndex={0}
                       aria-label={`Open saved inquiry ${inquiry.business_type}`}
                     >
-                      <CardHeader className="pb-2">
+                      <CardHeader>
                         <div className="min-w-0 space-y-1 pr-10">
-                            <CardTitle className="truncate text-base font-semibold text-foreground">{inquiry.business_type}</CardTitle>
+                            <CardTitle className="truncate text-base font-semibold text-foreground text-2xs">{inquiry.business_type}</CardTitle>
                             <p className="text-xs text-muted-foreground">
                               {new Date(inquiry.created_at).toLocaleString()}
                             </p>
