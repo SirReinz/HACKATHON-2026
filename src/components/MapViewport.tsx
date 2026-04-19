@@ -11,6 +11,7 @@ import Map, {
   NavigationControl,
   Source,
 } from "react-map-gl/mapbox"
+import ReactMarkdown, { type Components } from "react-markdown"
 
 import { FilterPanel } from "@/components/FilterPanel"
 import { SearchBar, type SearchResultItem } from "@/components/SearchBar"
@@ -83,6 +84,25 @@ type AreaInsights = {
   wealthDecile: number | null
   venuePerThousand: number | null
   axelScore: number | null
+}
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h1 className="text-base font-semibold text-foreground">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-semibold text-foreground">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="text-sm leading-relaxed text-foreground/90">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/90">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  a: ({ children, href }) => (
+    <a href={href} className="text-primary underline underline-offset-2">
+      {children}
+    </a>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
+  ),
 }
 
 // ---------------------------------------------------------------------------
@@ -844,7 +864,9 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
               </div>
             ) : (
               <ScrollArea className="h-44 pr-3">
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                <div className="space-y-3">
+                  <ReactMarkdown components={markdownComponents}>{briefing}</ReactMarkdown>
+                </div>
               </ScrollArea>
             )}
           </CardContent>
@@ -997,7 +1019,9 @@ export function MapViewport({ region, initialArea }: MapViewportProps) {
                     <Skeleton className="h-4 w-11/12" />
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                  <div className="space-y-3">
+                    <ReactMarkdown components={markdownComponents}>{briefing}</ReactMarkdown>
+                  </div>
                 )}
               </div>
             </details>

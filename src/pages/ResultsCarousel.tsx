@@ -7,6 +7,7 @@ import type { LayerProps, MapRef } from "react-map-gl/mapbox"
 import Map, { NavigationControl, Source, Layer } from "react-map-gl/mapbox"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
+import ReactMarkdown, { type Components } from "react-markdown"
 
 import { useTheme } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -112,6 +113,38 @@ type InquiryRow = {
   spending_bracket: "$" | "$$" | "$$$"
   results_data?: InquiryResultsData | null
   analysis_data?: InquiryAnalysisData | null
+}
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-foreground">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-foreground">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="text-sm leading-6 text-foreground/90">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/90">{children}</ol>,
+  li: ({ children }) => <li className="leading-6">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic text-foreground/90">{children}</em>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-border pl-4 text-sm italic text-muted-foreground">{children}</blockquote>
+  ),
+  code: ({ children, className }) => {
+    const isInline = !className
+    return isInline ? (
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
+    ) : (
+      <code className="block rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-6 text-foreground whitespace-pre-wrap">
+        {children}
+      </code>
+    )
+  },
+  pre: ({ children }) => <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs text-foreground">{children}</pre>,
+  a: ({ children, href }) => (
+    <a href={href} className="font-medium text-primary underline underline-offset-2">
+      {children}
+    </a>
+  ),
+  hr: () => <hr className="border-border" />,
 }
 
 function suburbLabel(suburb: ResultSuburb): string {
@@ -1228,7 +1261,9 @@ export function ResultsCarouselPage() {
               </div>
             ) : (
               <ScrollArea className="h-44 pr-3">
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
+                <div className="space-y-3 text-foreground/90">
+                  <ReactMarkdown components={markdownComponents}>{aiSummary}</ReactMarkdown>
+                </div>
               </ScrollArea>
             )}
           </CardContent>
